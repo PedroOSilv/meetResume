@@ -1,6 +1,38 @@
-# 🧠 Audio AI Desktop Application
+# AudioAI App
 
-Aplicação desktop desenvolvida com **Python (PySide6)** e backend **Node.js** que permite gravar áudio do sistema, processar com **OpenAI** (Whisper + ChatGPT) e exibir a resposta da IA.
+Aplicação desktop para captura e processamento de áudio usando IA.
+
+## Instalação Automática (Recomendado)
+
+Execute o instalador completo que instala Python, dependências e configura tudo automaticamente:
+
+```bash
+./instalador_completo.sh
+```
+
+O instalador irá:
+- ✅ Instalar Python 3.11 e pip
+- ✅ Instalar Node.js e npm
+- ✅ Instalar BlackHole (driver de áudio virtual)
+- ✅ Instalar todas as dependências Python e Node.js
+- ✅ Configurar ambiente virtual
+- ✅ Instalar a aplicação em `~/AudioAI`
+- ✅ Criar comandos globais `audioai` e `audioai-server`
+
+## Uso Após Instalação
+
+1. **Iniciar servidor**: `audioai-server`
+2. **Executar cliente**: `audioai`
+
+Ou execute diretamente:
+- Cliente: `~/AudioAI/executar_audioai.sh`
+- Servidor: `~/AudioAI/iniciar_servidor.sh`
+
+## Configuração
+
+1. Configure suas chaves de API no arquivo: `~/AudioAI/server/.env`
+2. Se instalou BlackHole, reinicie o sistema
+3. O servidor deve estar rodando antes de usar o cliente
 
 ## 🎯 Funcionalidades
 

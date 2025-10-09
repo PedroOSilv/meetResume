@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QClipboard
 from recorder import AudioRecorder
 from api_client import send_audio_to_server
+from blackhole_installer import BlackHoleInstaller
 
 
 class AudioProcessingThread(QThread):
@@ -404,6 +405,22 @@ class MainWindow(QWidget):
 def main():
     """Função principal"""
     app = QApplication(sys.argv)
+    
+    # Verificar e instalar BlackHole se necessário
+    print("🔍 Verificando instalação do BlackHole...")
+    blackhole_installer = BlackHoleInstaller()
+    
+    if not blackhole_installer.is_blackhole_installed():
+        print("⚠️ BlackHole não encontrado. Instalação necessária para captura de áudio do sistema.")
+        print("🚀 Iniciando instalação automática...")
+        
+        if not blackhole_installer.install_blackhole():
+            print("❌ Falha na instalação do BlackHole")
+            print("ℹ️ A aplicação continuará funcionando, mas apenas com áudio do microfone.")
+        else:
+            print("✅ BlackHole instalado com sucesso!")
+    else:
+        print("✅ BlackHole já está instalado")
     
     # Configurar estilo da aplicação
     app.setStyleSheet("""

@@ -55,6 +55,22 @@ wheels/
 venv/
 env/
 ENV/
+audioai_client_env/
+audioai_intel_env/
+client/venv/
+
+# Builds e executáveis
+dist/
+dist_intel/
+build/
+build_intel/
+client/dist/
+*.app/
+*.exe
+*.dmg
+
+# Arquivos de build PyInstaller
+*.spec.bak
 
 # IDEs
 .vscode/

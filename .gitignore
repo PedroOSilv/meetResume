@@ -29,6 +29,12 @@ client/*.m4a
 server/uploads/*
 !server/uploads/.gitkeep
 
+# Arquivos de distribuição e build
+*.zip
+dist_*/
+build_*/
+AudioAI_Desktop_Installer/
+
 # Cache Python
 __pycache__/
 *.py[cod]

@@ -105,9 +105,14 @@ class APIClient:
         
         formatted_response = ""
         
-        # Transcrição
+        # Análise da IA (resumo principal)
+        if "analysis" in response_data and response_data["analysis"]:
+            formatted_response += "🧠 **Resumo da IA:**\n"
+            formatted_response += f"{response_data['analysis']}\n\n"
+        
+        # Transcrição (opcional, para referência)
         if "transcript" in response_data and response_data["transcript"]:
-            formatted_response += "🎤 **Transcrição:**\n"
+            formatted_response += "📝 **Transcrição Original:**\n"
             formatted_response += f"{response_data['transcript']}"
         
         # Se não houver conteúdo útil

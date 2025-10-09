@@ -16,27 +16,41 @@ import io
 
 
 class AudioRecorder:
-    """Classe para gravação de áudio do sistema"""
+    """Classe para gravação de áudio do sistema e microfone"""
     
-    def __init__(self, sample_rate=44100, channels=2):
+    def __init__(self, sample_rate=44100, channels=2, record_mode="system", mix_ratio=0.7):
         """
         Inicializa o gravador de áudio
         
         Args:
-            sample_rate (int): Taxa de amostragem (Hz)
-            channels (int): Número de canais (1=mono, 2=stereo)
+            sample_rate (int): Taxa de amostragem (padrão: 44100 Hz)
+            channels (int): Número de canais para áudio do sistema (padrão: 2)
+            record_mode (str): Modo de gravação - "system", "microphone", ou "both"
+            mix_ratio (float): Proporção de mixagem (0.0 = só microfone, 1.0 = só sistema)
         """
         self.sample_rate = sample_rate
-        self.channels = channels
-        self.recording = []
-        self.is_recording = False
-        self.recording_thread = None
-        self.output_filename = "recording.mp3"
-        self.input_device = None
+        self.channels = channels  # Para áudio do sistema
+        self.mic_channels = 1  # Para microfone, será ajustado dinamicamente
+        self.record_mode = record_mode
+        self.mix_ratio = mix_ratio
         
-        # Verificar dispositivos disponíveis e configurar BlackHole
+        # Controle de gravação
+        self.is_recording = False
+        self.system_recording = []
+        self.mic_recording = []
+        self.recording_thread = None
+        self.mic_recording_thread = None
+        
+        # Dispositivos de áudio
+        self.input_device = None
+        self.microphone_device = None
+        
+        # Configurar dispositivos
         self._check_audio_devices()
-        self._setup_blackhole_device()
+        self._setup_audio_devices()
+        
+        # Arquivo de saída
+        self.output_filename = "recording.mp3"
     
     def _check_audio_devices(self):
         """Verifica e lista dispositivos de áudio disponíveis"""
@@ -48,80 +62,173 @@ class AudioRecorder:
         except Exception as e:
             print(f"Erro ao verificar dispositivos de áudio: {e}")
     
-    def _setup_blackhole_device(self):
-        """Configura BlackHole como dispositivo de entrada para captura de áudio do sistema"""
+    def _setup_audio_devices(self):
+        """Configura dispositivos de áudio baseado no modo de gravação"""
         try:
             devices = sd.query_devices()
             blackhole_device = None
+            microphone_device = None
             
-            # Procurar por dispositivos BlackHole
+            # Procurar por dispositivos BlackHole e microfone
             for i, device in enumerate(devices):
                 device_name = device['name'].lower()
+                
+                # Procurar BlackHole para áudio do sistema
                 if 'blackhole' in device_name and device['max_input_channels'] > 0:
                     blackhole_device = i
                     print(f"✅ BlackHole encontrado: {device['name']} (ID: {i})")
-                    break
+                
+                # Procurar qualquer dispositivo de entrada de áudio (microfone)
+                # Excluir dispositivos que são claramente de saída ou virtuais
+                if (device['max_input_channels'] > 0 and 
+                    'blackhole' not in device_name and 
+                    'multi-output' not in device_name and
+                    'speakers' not in device_name and
+                    microphone_device is None):  # Pegar o primeiro microfone encontrado
+                    microphone_device = i
+                    print(f"🎤 Microfone encontrado: {device['name']} (ID: {i}) - {device['max_input_channels']} canais")
             
-            if blackhole_device is not None:
+            # Configurar dispositivos baseado no modo
+            if self.record_mode == "system":
                 self.input_device = blackhole_device
-                print("🎵 Configurado para capturar áudio do sistema via BlackHole")
-                print("📋 Certifique-se de configurar um Multi-Output Device no Audio MIDI Setup")
-                print("   que inclua BlackHole e seus alto-falantes para ouvir o áudio")
-            else:
-                print("⚠️ BlackHole não encontrado!")
+                if blackhole_device is not None:
+                    print("🎵 Configurado para capturar apenas áudio do sistema via BlackHole")
+                    print("📋 Certifique-se de configurar um Multi-Output Device no Audio MIDI Setup")
+                else:
+                    print("⚠️ BlackHole não encontrado para captura de áudio do sistema!")
+                    
+            elif self.record_mode == "microphone":
+                self.microphone_device = microphone_device
+                # Ajustar canais baseado no dispositivo de microfone
+                if microphone_device is not None:
+                    mic_channels = devices[microphone_device]['max_input_channels']
+                    self.mic_channels = min(mic_channels, 2)  # Máximo 2 canais para compatibilidade
+                    print(f"🎤 Configurado para capturar apenas áudio do microfone ({self.mic_channels} canais)")
+                else:
+                    print("⚠️ Microfone não encontrado!")
+                    
+            elif self.record_mode == "both":
+                self.input_device = blackhole_device
+                self.microphone_device = microphone_device
+                if blackhole_device is not None and microphone_device is not None:
+                    # Ajustar canais do microfone
+                    mic_channels = devices[microphone_device]['max_input_channels']
+                    self.mic_channels = min(mic_channels, 2)  # Máximo 2 canais para compatibilidade
+                    print("🎵🎤 Configurado para capturar áudio do sistema E microfone")
+                    print("📋 Certifique-se de configurar um Multi-Output Device no Audio MIDI Setup")
+                    print(f"⚖️ Proporção de mixagem: {self.mix_ratio*100:.0f}% sistema / {(1-self.mix_ratio)*100:.0f}% microfone")
+                    print(f"🎤 Microfone: {self.mic_channels} canais")
+                else:
+                    missing = []
+                    if blackhole_device is None:
+                        missing.append("BlackHole")
+                    if microphone_device is None:
+                        missing.append("Microfone")
+                    print(f"⚠️ Dispositivos não encontrados: {', '.join(missing)}")
+            
+            # Instruções de instalação se necessário
+            if blackhole_device is None and self.record_mode in ["system", "both"]:
                 print("📥 Para capturar áudio do sistema, instale BlackHole:")
                 print("   brew install blackhole-2ch")
                 print("   Depois configure um Multi-Output Device no Audio MIDI Setup")
                 
         except Exception as e:
-            print(f"Erro ao configurar BlackHole: {e}")
+            print(f"Erro ao configurar dispositivos de áudio: {e}")
             self.input_device = None
+            self.microphone_device = None
     
     def start_recording(self):
-        """Inicia a gravação de áudio"""
+        """Inicia a gravação de áudio baseada no modo configurado"""
         if self.is_recording:
             print("Gravação já está em andamento!")
             return
         
-        self.recording = []
+        self.system_recording = []
+        self.mic_recording = []
         self.is_recording = True
         
-        # Iniciar gravação em thread separada
-        self.recording_thread = threading.Thread(target=self._record_audio)
-        self.recording_thread.daemon = True
-        self.recording_thread.start()
-        
-        print(f"Gravação iniciada - {self.sample_rate}Hz, {self.channels} canais")
-    
-    def _record_audio(self):
-        """Função interna para gravação contínua de áudio"""
-        try:
-            # Configurar stream de áudio
-            def audio_callback(indata, frames, time, status):
-                if status:
-                    print(f"Status do áudio: {status}")
-                if self.is_recording:
-                    self.recording.append(indata.copy())
+        # Iniciar gravação baseada no modo
+        if self.record_mode == "system" and self.input_device is not None:
+            self.recording_thread = threading.Thread(target=self._record_system_audio)
+            self.recording_thread.daemon = True
+            self.recording_thread.start()
+            print(f"Gravação do sistema iniciada - {self.sample_rate}Hz, {self.channels} canais")
             
-            # Iniciar stream
+        elif self.record_mode == "microphone" and self.microphone_device is not None:
+            self.mic_recording_thread = threading.Thread(target=self._record_microphone_audio)
+            self.mic_recording_thread.daemon = True
+            self.mic_recording_thread.start()
+            print(f"Gravação do microfone iniciada - {self.sample_rate}Hz, {self.channels} canais")
+            
+        elif self.record_mode == "both" and self.input_device is not None and self.microphone_device is not None:
+            # Iniciar ambas as threads de gravação
+            self.recording_thread = threading.Thread(target=self._record_system_audio)
+            self.mic_recording_thread = threading.Thread(target=self._record_microphone_audio)
+            self.recording_thread.daemon = True
+            self.mic_recording_thread.daemon = True
+            self.recording_thread.start()
+            self.mic_recording_thread.start()
+            print(f"Gravação simultânea iniciada - {self.sample_rate}Hz, {self.channels} canais")
+            print(f"Sistema: {self.mix_ratio*100:.0f}% | Microfone: {(1-self.mix_ratio)*100:.0f}%")
+        else:
+            print("❌ Não é possível iniciar gravação - dispositivos não configurados!")
+            self.is_recording = False
+    
+    def _record_system_audio(self):
+        """Função interna para gravação contínua de áudio do sistema"""
+        try:
+            # Configurar stream de áudio do sistema
+            def system_audio_callback(indata, frames, time, status):
+                if status:
+                    print(f"Status do áudio do sistema: {status}")
+                if self.is_recording:
+                    self.system_recording.append(indata.copy())
+            
+            # Iniciar stream do sistema
             with sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
-                callback=audio_callback,
+                callback=system_audio_callback,
                 blocksize=1024,
-                device=self.input_device  # Usar BlackHole se disponível
+                device=self.input_device
             ):
-                print("Stream de áudio iniciado...")
+                print("Stream de áudio do sistema iniciado...")
                 while self.is_recording:
-                    time.sleep(0.1)  # Pequena pausa para não sobrecarregar CPU
+                    time.sleep(0.1)
                     
         except Exception as e:
-            print(f"Erro durante gravação: {e}")
+            print(f"Erro durante gravação do sistema: {e}")
+            self.is_recording = False
+    
+    def _record_microphone_audio(self):
+        """Função interna para gravação contínua de áudio do microfone"""
+        try:
+            # Configurar stream de áudio do microfone
+            def mic_audio_callback(indata, frames, time, status):
+                if status:
+                    print(f"Status do áudio do microfone: {status}")
+                if self.is_recording:
+                    self.mic_recording.append(indata.copy())
+            
+            # Iniciar stream do microfone com número correto de canais
+            with sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=self.mic_channels,  # Usar mic_channels em vez de channels
+                callback=mic_audio_callback,
+                blocksize=1024,
+                device=self.microphone_device
+            ):
+                print("Stream de áudio do microfone iniciado...")
+                while self.is_recording:
+                    time.sleep(0.1)
+                    
+        except Exception as e:
+            print(f"Erro durante gravação do microfone: {e}")
             self.is_recording = False
     
     def stop_recording(self):
         """
-        Para a gravação e salva o arquivo
+        Para a gravação e salva o arquivo com mixagem se necessário
         
         Returns:
             str: Nome do arquivo salvo ou string vazia se houver erro
@@ -133,73 +240,140 @@ class AudioRecorder:
         print("Parando gravação...")
         self.is_recording = False
         
-        # Aguardar thread terminar
+        # Aguardar threads terminarem
         if self.recording_thread and self.recording_thread.is_alive():
             self.recording_thread.join(timeout=2.0)
+        if self.mic_recording_thread and self.mic_recording_thread.is_alive():
+            self.mic_recording_thread.join(timeout=2.0)
         
-        # Processar e salvar áudio
-        if self.recording and len(self.recording) > 0:
-            try:
-                # Concatenar todos os chunks de áudio
-                audio_data = np.concatenate(self.recording, axis=0)
+        # Processar e salvar áudio baseado no modo
+        try:
+            final_audio_data = None
+            
+            if self.record_mode == "system" and self.system_recording:
+                final_audio_data = self._process_single_source(self.system_recording, "sistema")
                 
-                # Verificar se há dados de áudio válidos
-                if len(audio_data) == 0:
-                    print("Nenhum dado de áudio capturado!")
-                    return ""
+            elif self.record_mode == "microphone" and self.mic_recording:
+                final_audio_data = self._process_single_source(self.mic_recording, "microfone")
                 
-                # Normalizar áudio para evitar clipping
-                if audio_data.max() > 0:
-                    audio_data = audio_data / np.max(np.abs(audio_data))
-                
-                # Converter para int16 (formato WAV padrão)
-                audio_data = (audio_data * 32767).astype(np.int16)
-                
-                # Garantir que o nome do arquivo seja válido
-                if not self.output_filename or self.output_filename.strip() == "":
-                    self.output_filename = "recording.mp3"
-                
-                # Criar arquivo WAV temporário primeiro
-                temp_wav_filename = "temp_recording.wav"
-                write(temp_wav_filename, self.sample_rate, audio_data)
-                
-                # Converter WAV para MP3 usando pydub
-                try:
-                    audio_segment = AudioSegment.from_wav(temp_wav_filename)
-                    audio_segment.export(self.output_filename, format="mp3", bitrate="128k")
-                    
-                    # Remover arquivo WAV temporário
-                    if os.path.exists(temp_wav_filename):
-                        os.remove(temp_wav_filename)
-                        
-                except Exception as e:
-                    print(f"Erro na conversão para MP3: {e}")
-                    # Fallback: manter como WAV se a conversão falhar
-                    if os.path.exists(temp_wav_filename):
-                        wav_filename = self.output_filename.replace('.mp3', '.wav')
-                        os.rename(temp_wav_filename, wav_filename)
-                        self.output_filename = wav_filename
-                        print(f"Fallback: arquivo salvo como WAV - {wav_filename}")
-                    return ""
-                
-                # Verificar se o arquivo foi criado com sucesso
-                if os.path.exists(self.output_filename) and os.path.getsize(self.output_filename) > 0:
-                    duration = len(audio_data) / self.sample_rate
-                    file_size = os.path.getsize(self.output_filename) / 1024  # KB
-                    
-                    print(f"Gravação salva: {self.output_filename}")
-                    print(f"Duração: {duration:.2f}s, Tamanho: {file_size:.1f}KB")
-                    
-                    return self.output_filename
-                else:
-                    print("Erro: Arquivo não foi criado corretamente!")
-                    return ""
-                
-            except Exception as e:
-                print(f"Erro ao salvar gravação: {e}")
+            elif self.record_mode == "both":
+                final_audio_data = self._mix_audio_sources()
+            
+            if final_audio_data is not None and len(final_audio_data) > 0:
+                return self._save_audio_file(final_audio_data)
+            else:
+                print("Nenhum dado de áudio válido capturado!")
                 return ""
-        else:
-            print("Nenhum áudio foi gravado!")
+                
+        except Exception as e:
+            print(f"Erro ao processar gravação: {e}")
+            return ""
+    
+    def _process_single_source(self, recording_data, source_name):
+        """Processa dados de áudio de uma única fonte"""
+        if not recording_data or len(recording_data) == 0:
+            print(f"Nenhum dado de áudio capturado do {source_name}!")
+            return None
+        
+        # Concatenar chunks de áudio
+        audio_data = np.concatenate(recording_data, axis=0)
+        print(f"✅ Áudio do {source_name} processado: {len(audio_data)} amostras")
+        return audio_data
+    
+    def _mix_audio_sources(self):
+        """Mixa áudio do sistema e microfone baseado na proporção configurada"""
+        system_audio = None
+        mic_audio = None
+        
+        # Processar áudio do sistema
+        if self.system_recording and len(self.system_recording) > 0:
+            system_audio = np.concatenate(self.system_recording, axis=0)
+            print(f"✅ Áudio do sistema: {len(system_audio)} amostras")
+        
+        # Processar áudio do microfone
+        if self.mic_recording and len(self.mic_recording) > 0:
+            mic_audio = np.concatenate(self.mic_recording, axis=0)
+            print(f"✅ Áudio do microfone: {len(mic_audio)} amostras")
+        
+        # Verificar se temos pelo menos uma fonte
+        if system_audio is None and mic_audio is None:
+            print("❌ Nenhum áudio capturado de qualquer fonte!")
+            return None
+        
+        # Se só temos uma fonte, retornar ela
+        if system_audio is None:
+            print("⚠️ Apenas áudio do microfone disponível")
+            return mic_audio
+        if mic_audio is None:
+            print("⚠️ Apenas áudio do sistema disponível")
+            return system_audio
+        
+        # Sincronizar tamanhos (usar o menor)
+        min_length = min(len(system_audio), len(mic_audio))
+        system_audio = system_audio[:min_length]
+        mic_audio = mic_audio[:min_length]
+        
+        # Aplicar mixagem com proporções
+        mixed_audio = (system_audio * self.mix_ratio + 
+                      mic_audio * (1 - self.mix_ratio))
+        
+        print(f"🎵🎤 Áudio mixado: {len(mixed_audio)} amostras")
+        print(f"⚖️ Proporção: {self.mix_ratio*100:.0f}% sistema / {(1-self.mix_ratio)*100:.0f}% microfone")
+        
+        return mixed_audio
+    
+    def _save_audio_file(self, audio_data):
+        """Salva dados de áudio em arquivo MP3"""
+        try:
+            # Normalizar áudio para evitar clipping
+            if audio_data.max() > 0:
+                audio_data = audio_data / np.max(np.abs(audio_data))
+            
+            # Converter para int16 (formato WAV padrão)
+            audio_data = (audio_data * 32767).astype(np.int16)
+            
+            # Garantir que o nome do arquivo seja válido
+            if not self.output_filename or self.output_filename.strip() == "":
+                self.output_filename = "recording.mp3"
+            
+            # Criar arquivo WAV temporário primeiro
+            temp_wav_filename = "temp_recording.wav"
+            write(temp_wav_filename, self.sample_rate, audio_data)
+            
+            # Converter WAV para MP3 usando pydub
+            try:
+                audio_segment = AudioSegment.from_wav(temp_wav_filename)
+                audio_segment.export(self.output_filename, format="mp3", bitrate="128k")
+                
+                # Remover arquivo WAV temporário
+                if os.path.exists(temp_wav_filename):
+                    os.remove(temp_wav_filename)
+                    
+            except Exception as e:
+                print(f"Erro na conversão para MP3: {e}")
+                # Fallback: manter como WAV se a conversão falhar
+                if os.path.exists(temp_wav_filename):
+                    wav_filename = self.output_filename.replace('.mp3', '.wav')
+                    os.rename(temp_wav_filename, wav_filename)
+                    self.output_filename = wav_filename
+                    print(f"Fallback: arquivo salvo como WAV - {wav_filename}")
+                return ""
+            
+            # Verificar se o arquivo foi criado com sucesso
+            if os.path.exists(self.output_filename) and os.path.getsize(self.output_filename) > 0:
+                duration = len(audio_data) / self.sample_rate
+                file_size = os.path.getsize(self.output_filename) / 1024  # KB
+                
+                print(f"✅ Gravação salva: {self.output_filename}")
+                print(f"📊 Duração: {duration:.2f}s, Tamanho: {file_size:.1f}KB")
+                
+                return self.output_filename
+            else:
+                print("❌ Erro: Arquivo não foi criado corretamente!")
+                return ""
+                
+        except Exception as e:
+            print(f"❌ Erro ao salvar gravação: {e}")
             return ""
     
     def get_recording_info(self):
@@ -209,15 +383,15 @@ class AudioRecorder:
         Returns:
             dict: Informações da gravação
         """
-        if self.is_recording and self.recording:
-            current_length = sum(len(chunk) for chunk in self.recording)
+        if self.is_recording and self.system_recording:
+            current_length = sum(len(chunk) for chunk in self.system_recording)
             duration = current_length / self.sample_rate
             return {
                 "is_recording": self.is_recording,
                 "duration": duration,
                 "sample_rate": self.sample_rate,
                 "channels": self.channels,
-                "chunks": len(self.recording)
+                "chunks": len(self.system_recording)
             }
         return {
             "is_recording": self.is_recording,

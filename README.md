@@ -4,11 +4,17 @@ Aplicação desktop desenvolvida com **Python (PySide6)** e backend **Node.js** 
 
 ## 🎯 Funcionalidades
 
-- 🎙️ **Gravação de áudio** do sistema em tempo real
+- **Gravação de Áudio Inteligente**: Suporte a múltiplos modos de captura
+  - 🎤 **Apenas Microfone**: Gravação tradicional de voz
+  - 🖥️ **Apenas Sistema**: Captura do áudio do sistema (requer BlackHole)
+  - 🎤🖥️ **Microfone + Sistema**: Captura simultânea com mixagem configurável
+- **Processamento com IA**: Integração com OpenAI para transcrição e análise
+- **Interface Moderna**: Aplicação desktop com PySide6
+- **Executável Standalone**: Distribuição sem necessidade de Python
+- **Mixagem Inteligente**: Controle de proporção entre fontes de áudio
 - ⏹️ **Controle manual** de início e parada da gravação
 - 🤖 **Transcrição automática** usando OpenAI Whisper
 - 💬 **Resposta inteligente** usando ChatGPT
-- 🖥️ **Interface moderna** com PySide6
 - 🔄 **Processamento assíncrono** para melhor UX
 
 ## 📁 Estrutura do Projeto
@@ -57,6 +63,30 @@ NODE_ENV=development
 ```
 
 ### 3. Configurar o Cliente (Desktop)
+
+#### Pré-requisitos
+- Python 3.8+
+- Dependências do projeto (instaladas automaticamente)
+
+#### Para Captura de Áudio do Sistema (Opcional)
+Se você quiser usar o modo de captura de áudio do sistema ou modo combinado:
+
+1. **Instalar BlackHole** (driver de áudio virtual):
+   ```bash
+   # Via Homebrew (recomendado)
+   brew install blackhole-2ch
+   
+   # Ou baixar de: https://github.com/ExistentialAudio/BlackHole
+   ```
+
+2. **Configurar Multi-Output Device**:
+   - Abra **Audio MIDI Setup** (Aplicações > Utilitários)
+   - Crie um **Multi-Output Device** incluindo BlackHole e sua saída padrão
+   - Configure como saída padrão do sistema
+
+📖 **Guia Completo**: Veja `client/AUDIO_CAPTURE_GUIDE.md` para instruções detalhadas
+
+#### Instalação
 
 ```bash
 # Navegar para o diretório do cliente

@@ -30,6 +30,17 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
+// Configuração do prompt personalizado para ChatGPT
+const CHATGPT_PROMPT = process.env.CHATGPT_PROMPT || `Você é um assistente inteligente que analisa transcrições de áudio. 
+
+Sua função é:
+1. Analisar o conteúdo da transcrição
+2. Identificar pontos principais e temas abordados
+3. Fornecer um resumo claro e objetivo
+4. Sugerir ações ou próximos passos quando relevante
+
+Responda de forma clara, organizada e útil em português.`;
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -118,15 +129,38 @@ app.post("/upload", upload.single("audio"), async (req, res) => {
             });
         }
 
+        console.log("🤖 Processando transcrição com ChatGPT...");
+        
+        // Processar transcrição com ChatGPT usando prompt personalizado
+        const chatCompletion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: CHATGPT_PROMPT
+                },
+                {
+                    role: "user",
+                    content: `Analise esta transcrição de áudio: "${transcription}"`
+                }
+            ],
+            temperature: 0.7,
+            max_tokens: 1000
+        });
+
+        const chatResponse = chatCompletion.choices[0].message.content;
+        console.log(`🧠 Análise do ChatGPT concluída`);
+
         // Limpar arquivo temporário
         fs.unlinkSync(audioFile.path);
 
         const processingTime = Date.now() - startTime;
-        console.log(`✅ Transcrição concluída em ${processingTime}ms`);
+        console.log(`✅ Processamento completo em ${processingTime}ms`);
 
-        // Retornar apenas a transcrição
+        // Retornar transcrição e análise do ChatGPT
         res.json({
             transcript: transcription,
+            analysis: chatResponse,
             processing_time_ms: processingTime,
             timestamp: new Date().toISOString()
         });

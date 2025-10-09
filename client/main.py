@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton,
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QClipboard
 from recorder import AudioRecorder
-from api_client import send_audio_to_server
+from api_client import send_audio_to_server, set_server_url
 from blackhole_installer import BlackHoleInstaller
 
 
@@ -405,6 +405,19 @@ class MainWindow(QWidget):
 def main():
     """Função principal"""
     app = QApplication(sys.argv)
+    
+    # Definir servidor via variável de ambiente ou argumento de linha de comando
+    import os
+    server_url = os.environ.get("AUDIOAI_SERVER_URL")
+    for arg in sys.argv[1:]:
+        if arg.startswith("--server-url="):
+            server_url = arg.split("=", 1)[1]
+            break
+    if server_url:
+        print(f"🌐 Usando servidor: {server_url}")
+        set_server_url(server_url)
+    else:
+        print("ℹ️ Usando servidor padrão: http://localhost:3030")
     
     # Verificar e instalar BlackHole se necessário
     print("🔍 Verificando instalação do BlackHole...")

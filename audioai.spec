@@ -1,66 +1,79 @@
 # -*- mode: python ; coding: utf-8 -*-
+"""
+AudioAI Desktop - PyInstaller Spec File
+Configuração otimizada para gerar executável autônomo no macOS
+"""
+
 import os
 import sys
 from pathlib import Path
 
-# Configurações do projeto
-project_dir = Path.cwd()
-client_dir = project_dir / 'client'
+# Diretórios do projeto
+project_dir = Path(SPECPATH)
+client_dir = project_dir / "client"
 
-# Adicionar o diretório client ao path
-sys.path.insert(0, str(client_dir))
-
-# Dados adicionais para incluir
-added_files = [
-    (str(project_dir / 'server' / 'prompt.md'), '.'),
-]
+# Dados adicionais a serem incluídos
+datas = []
 
 # Imports ocultos necessários
-hidden_imports = [
+hiddenimports = [
     'PySide6.QtCore',
     'PySide6.QtWidgets', 
     'PySide6.QtGui',
-    'PySide6.QtMultimedia',
     'sounddevice',
     'scipy',
     'scipy.signal',
+    'scipy.io',
+    'scipy.io.wavfile',
     'numpy',
     'requests',
-    'typing_extensions',
+    'urllib3',
+    'certifi',
+    'charset_normalizer',
+    'idna',
     'pydub',
-    'pydub.utils',
-    'pydub.effects',
-    'json',
-    'threading',
-    'queue',
-    'time',
-    'os',
-    'sys',
-    'pathlib',
-    'tempfile',
-    'subprocess',
+    'typing_extensions',
+    '_sounddevice_data',
+    'cffi',
+    'pycparser'
 ]
 
+# Binários adicionais (bibliotecas nativas)
+binaries = []
+
+# Análise do script principal
 a = Analysis(
     [str(client_dir / 'main.py')],
-    pathex=[str(project_dir), str(client_dir)],
-    binaries=[],
-    datas=added_files,
-    hiddenimports=hidden_imports,
+    pathex=[str(client_dir)],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'PIL',
+        'PyQt5',
+        'PyQt6',
+        'wx'
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
     noarchive=False,
-    optimize=0,
 )
 
-pyz = PYZ(a.pure)
+# Remover duplicatas
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
+# Executável
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
     name='AudioAI',
@@ -76,13 +89,13 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
 )
 
+# Bundle da aplicação (macOS .app)
 app = BUNDLE(
     exe,
     name='AudioAI.app',
-    icon=None,
+    icon=None,  # Será definido no script de build se disponível
     bundle_identifier='com.audioai.desktop',
     version='1.0.0',
     info_plist={
@@ -91,10 +104,12 @@ app = BUNDLE(
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'CFBundleIdentifier': 'com.audioai.desktop',
-        'NSMicrophoneUsageDescription': 'AudioAI precisa acessar o microfone para gravar áudio.',
-        'NSSystemAdministrationUsageDescription': 'AudioAI precisa de permissões administrativas para configurar dispositivos de áudio.',
-        'LSMinimumSystemVersion': '10.14',
+        'CFBundleExecutable': 'AudioAI',
+        'CFBundlePackageType': 'APPL',
         'NSHighResolutionCapable': True,
-        'NSRequiresAquaSystemAppearance': False,
+        'NSMicrophoneUsageDescription': 'AudioAI precisa acessar o microfone para gravar áudio.',
+        'NSAppleEventsUsageDescription': 'AudioAI precisa de acesso para funcionar corretamente.',
+        'LSMinimumSystemVersion': '10.15.0',
+        'LSApplicationCategoryType': 'public.app-category.productivity',
     },
 )

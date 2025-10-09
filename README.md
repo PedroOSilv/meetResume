@@ -1,416 +1,206 @@
-# AudioAI App
+# 🎯 AudioAI Desktop - Instalador Completo
 
-Aplicação desktop para captura e processamento de áudio usando IA.
+Instalador autônomo para aplicação desktop AudioAI, compatível com **macOS Intel e Apple Silicon**.
 
-## Instalação Automática (Recomendado)
+## 📋 Visão Geral
 
-Execute o instalador completo que instala Python, dependências e configura tudo automaticamente:
+Este projeto cria um **executável autônomo** da aplicação AudioAI Desktop que pode ser executado em qualquer Mac **sem necessidade de instalar Python ou dependências**.
+
+### ✨ Características
+
+- 🚀 **Executável autônomo** - Inclui Python e todas as dependências
+- 🏗️ **Compatibilidade universal** - Funciona em Intel e Apple Silicon (M1/M2/M3)
+- 📦 **Instalador DMG** - Instalação simples arrastando para Applications
+- 🔐 **Assinatura de código** - Evita bloqueios do Gatekeeper
+- 🎨 **Interface nativa** - PySide6 com aparência nativa do macOS
+
+## 🛠️ Pré-requisitos
+
+- macOS 10.15 ou superior
+- Homebrew (será instalado automaticamente se necessário)
+- Xcode Command Line Tools
+
+## 🚀 Como Usar
+
+### 1. Build da Aplicação
+
+Execute o script de build que detecta automaticamente sua arquitetura:
 
 ```bash
-./instalador_completo.sh
+./build_app.sh
 ```
 
-O instalador irá:
-- ✅ Instalar Python 3.11 e pip
-- ✅ Instalar Node.js e npm
-- ✅ Instalar BlackHole (driver de áudio virtual)
-- ✅ Instalar todas as dependências Python e Node.js
-- ✅ Configurar ambiente virtual
-- ✅ Instalar a aplicação em `~/AudioAI`
-- ✅ Criar comandos globais `audioai` e `audioai-server`
+Este script irá:
+- ✅ Detectar arquitetura (Intel/Apple Silicon)
+- ✅ Instalar Python e dependências se necessário
+- ✅ Criar ambiente virtual temporário
+- ✅ Gerar executável com PyInstaller
+- ✅ Aplicar assinatura de código
+- ✅ Remover quarentena
 
-## Uso Após Instalação
+### 2. Criar Instalador DMG (Opcional)
 
-1. **Iniciar servidor**: `audioai-server`
-2. **Executar cliente**: `audioai`
+Para criar um instalador DMG profissional:
 
-Ou execute diretamente:
-- Cliente: `~/AudioAI/executar_audioai.sh`
-- Servidor: `~/AudioAI/iniciar_servidor.sh`
+```bash
+./create_dmg.sh
+```
 
-## Configuração
-
-1. Configure suas chaves de API no arquivo: `~/AudioAI/server/.env`
-2. Se instalou BlackHole, reinicie o sistema
-3. O servidor deve estar rodando antes de usar o cliente
-
-## 🎯 Funcionalidades
-
-- **Gravação de Áudio Inteligente**: Suporte a múltiplos modos de captura
-  - 🎤 **Apenas Microfone**: Gravação tradicional de voz
-  - 🖥️ **Apenas Sistema**: Captura do áudio do sistema (requer BlackHole)
-  - 🎤🖥️ **Microfone + Sistema**: Captura simultânea com mixagem configurável
-- **Processamento com IA**: Integração com OpenAI para transcrição e análise
-- **Interface Moderna**: Aplicação desktop com PySide6
-- **Executável Standalone**: Distribuição sem necessidade de Python
-- **Mixagem Inteligente**: Controle de proporção entre fontes de áudio
-- ⏹️ **Controle manual** de início e parada da gravação
-- 🤖 **Transcrição automática** usando OpenAI Whisper
-- 💬 **Resposta inteligente** usando ChatGPT
-- 🔄 **Processamento assíncrono** para melhor UX
+Este script irá:
+- ✅ Verificar se a aplicação foi buildada
+- ✅ Instalar create-dmg se necessário
+- ✅ Criar DMG com layout de instalação
+- ✅ Assinar o DMG
+- ✅ Testar montagem
 
 ## 📁 Estrutura do Projeto
 
 ```
 audio-ai-app/
-├── client/                 # Aplicação desktop PySide6
-│   ├── main.py            # Interface principal
-│   ├── recorder.py        # Módulo de gravação
-│   ├── api_client.py      # Cliente para comunicação com servidor
-│   └── requirements.txt   # Dependências Python
-├── server/                # Backend Node.js
-│   ├── server.js         # Servidor Express + OpenAI
-│   ├── package.json      # Dependências Node.js
-│   └── .env.example      # Exemplo de configuração
-└── README.md             # Este arquivo
+├── audioai.spec          # Configuração PyInstaller otimizada
+├── build_app.sh          # Script principal de build
+├── create_dmg.sh         # Criador de instalador DMG
+├── client/               # Código fonte da aplicação
+│   ├── main.py          # Aplicação principal
+│   ├── recorder.py      # Gravação de áudio
+│   ├── api_client.py    # Cliente da API
+│   └── requirements.txt # Dependências Python
+└── server/              # Servidor Node.js (separado)
 ```
 
-## 🚀 Instalação e Configuração
+## 🔧 Configuração Técnica
 
-### 1. Pré-requisitos
+### Dependências Incluídas
 
-- **Python 3.8+** com pip
-- **Node.js 18+** com npm
-- **Chave da API OpenAI** ([obter aqui](https://platform.openai.com/api-keys))
-
-### 2. Configurar o Servidor (Backend)
-
-```bash
-# Navegar para o diretório do servidor
-cd audio-ai-app/server
-
-# Instalar dependências
-npm install
-
-# Configurar variáveis de ambiente
-cp .env.example .env
-# Edite o arquivo .env e adicione sua OPENAI_API_KEY
-```
-
-**Arquivo `.env`:**
-```env
-OPENAI_API_KEY=sk-sua_chave_openai_aqui
-PORT=3000
-NODE_ENV=development
-```
-
-### 3. Configurar o Cliente (Desktop)
-
-#### Pré-requisitos
-- Python 3.8+
-- Dependências do projeto (instaladas automaticamente)
-
-#### Para Captura de Áudio do Sistema (Opcional)
-Se você quiser usar o modo de captura de áudio do sistema ou modo combinado:
-
-1. **Instalar BlackHole** (driver de áudio virtual):
-   ```bash
-   # Via Homebrew (recomendado)
-   brew install blackhole-2ch
-   
-   # Ou baixar de: https://github.com/ExistentialAudio/BlackHole
-   ```
-
-2. **Configurar Multi-Output Device**:
-   - Abra **Audio MIDI Setup** (Aplicações > Utilitários)
-   - Crie um **Multi-Output Device** incluindo BlackHole e sua saída padrão
-   - Configure como saída padrão do sistema
-
-📖 **Guia Completo**: Veja `client/AUDIO_CAPTURE_GUIDE.md` para instruções detalhadas
-
-#### Instalação
-
-```bash
-# Navegar para o diretório do cliente
-cd audio-ai-app/client
-
-# Criar ambiente virtual (recomendado)
-python -m venv venv
-source venv/bin/activate  # No Windows: venv\\Scripts\\activate
-
-# Instalar dependências
-pip install -r requirements.txt
-```
-
-## 🎮 Como Usar
-
-### 1. Iniciar o Servidor
-
-```bash
-cd audio-ai-app/server
-npm start
-```
-
-O servidor estará disponível em `http://localhost:3000`
-
-### 2. Executar a Aplicação Desktop
-
-```bash
-cd audio-ai-app/client
-python main.py
-```
-
-### 3. Usar a Aplicação
-
-1. **Clique em "🎙️ Iniciar Gravação"** para começar a gravar
-2. **Fale claramente** para o microfone
-3. **Clique em "⏹️ Parar e Enviar"** quando terminar
-4. **Aguarde o processamento** - a resposta aparecerá na tela
-
-## 📦 Gerar Executável (Distribuição)
-
-Para criar um executável standalone que não requer Python instalado:
-
-### Opção 1: Script Automático (Recomendado)
-
-```bash
-cd audio-ai-app/client
-
-# Para macOS/Linux
-./build.sh
-
-# Para Windows ou usando Python diretamente
-python build.py
-```
-
-### Opção 2: Manual com PyInstaller
-
-```bash
-cd audio-ai-app/client
-
-# Instalar PyInstaller
-pip install pyinstaller
-
-# Gerar executável
-pyinstaller build.spec
-```
-
-### Resultado do Build
-
-Após o build bem-sucedido:
-- **Executável**: `dist/AudioAI` (macOS/Linux) ou `dist/AudioAI.exe` (Windows)
-- **Bundle macOS**: `dist/AudioAI.app` (aplicação nativa macOS)
-- **Tamanho**: ~65MB (inclui todas as dependências)
-
-### Como Distribuir
-
-1. **Copie a pasta `dist/`** para o computador de destino
-2. **Execute o arquivo** `AudioAI` (ou `AudioAI.exe`)
-3. **Certifique-se** de que o servidor Node.js está rodando na rede
-
-### Configurar Cliente para Servidor Remoto
-
-Se o servidor estiver em outro computador:
-
-```python
-# Edite api_client.py ou configure via interface
-BASE_URL = "http://IP_DO_SERVIDOR:3030"
-```
-
-## 🔧 Desenvolvimento
-
-### Executar em Modo de Desenvolvimento
-
-**Servidor com auto-reload:**
-```bash
-cd server
-npm run dev
-```
-
-**Cliente com debug:**
-```bash
-cd client
-python main.py
-```
-
-### Testar Componentes Individualmente
-
-**Testar gravação de áudio:**
-```bash
-cd client
-python recorder.py
-```
-
-**Testar cliente API:**
-```bash
-cd client
-python api_client.py
-```
-
-## 🛠️ Dependências
-
-### Cliente Python
-- **PySide6** - Interface gráfica
+- **PySide6** - Interface gráfica nativa
 - **sounddevice** - Gravação de áudio
-- **scipy** - Processamento de áudio
-- **numpy** - Operações numéricas
+- **scipy** - Processamento de sinais
 - **requests** - Comunicação HTTP
+- **numpy** - Computação numérica
 
-### Servidor Node.js
-- **express** - Framework web
-- **multer** - Upload de arquivos
-- **openai** - API da OpenAI
-- **dotenv** - Variáveis de ambiente
-- **cors** - CORS para requisições
+### Compatibilidade de Arquitetura
 
-## 🔍 Solução de Problemas
+| Arquitetura | Python Path | Homebrew Path | Status |
+|-------------|-------------|---------------|---------|
+| Intel (x86_64) | `/usr/local/bin/python3` | `/usr/local` | ✅ Suportado |
+| Apple Silicon (arm64) | `/opt/homebrew/bin/python3` | `/opt/homebrew` | ✅ Suportado |
 
-### Problemas Comuns
+### Configurações do PyInstaller
 
-**1. Erro "Servidor não está respondendo"**
-- Verifique se o servidor Node.js está rodando
-- Confirme que está na porta 3000
-- Teste: `curl http://localhost:3000/health`
+O arquivo `audioai.spec` inclui:
+- 📦 **Bundle mode** - Gera .app nativo do macOS
+- 🔒 **Imports ocultos** - Todas as dependências necessárias
+- 🚫 **Exclusões** - Remove bibliotecas desnecessárias (tkinter, matplotlib)
+- 📱 **Info.plist** - Metadados e permissões do app
 
-**2. Erro "OPENAI_API_KEY não configurada"**
-- Verifique o arquivo `.env` no servidor
-- Confirme que a chave está correta
-- Teste a chave em: https://platform.openai.com/playground
+## 🧪 Testando a Instalação
 
-**3. Problemas de áudio**
-- Verifique permissões do microfone
-- Teste com: `python recorder.py`
-- Confirme que há dispositivos de entrada disponíveis
-
-**4. Erro de dependências Python**
-- Use ambiente virtual: `python -m venv venv`
-- Atualize pip: `pip install --upgrade pip`
-- Instale novamente: `pip install -r requirements.txt`
-
-### Logs e Debug
-
-**Servidor:**
-- Logs aparecem no terminal onde rodou `npm start`
-- Para mais detalhes: `NODE_ENV=development npm start`
-
-**Cliente:**
-- Erros aparecem na interface e no terminal
-- Para debug: adicione `print()` statements
-
-## 📊 Endpoints da API
-
-### `GET /health`
-Verifica status do servidor
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T12:00:00.000Z",
-  "uptime": 123.45
-}
-```
-
-### `POST /upload`
-Processa arquivo de áudio
-- **Input:** Arquivo de áudio (multipart/form-data)
-- **Output:** Transcrição + resposta da IA
-```json
-{
-  "transcript": "Olá, como você está?",
-  "response": "Olá! Estou bem, obrigado por perguntar...",
-  "processing_time_ms": 2500,
-  "timestamp": "2024-01-01T12:00:00.000Z"
-}
-```
-
-## 🌐 Acesso Remoto (Outros Dispositivos na Rede)
-
-Para permitir que outros dispositivos na mesma rede acessem o servidor:
-
-### 1. Configurar o Servidor para Acesso Externo
-
-O servidor já está configurado para aceitar conexões de qualquer IP (`HOST=0.0.0.0`).
-
-**Verificar configuração no `.env`:**
-```env
-HOST=0.0.0.0  # Aceita conexões de qualquer IP
-PORT=3000     # Porta do servidor
-```
-
-### 2. Descobrir o IP da Máquina
-
-**No macOS/Linux:**
+### Teste Local
 ```bash
-ifconfig | grep "inet " | grep -v 127.0.0.1
+# Testar aplicação diretamente
+open dist/AudioAI.app
+
+# Instalar na pasta Applications
+cp -R dist/AudioAI.app /Applications/
+
+# Testar DMG
+open AudioAI-Installer.dmg
 ```
 
-**No Windows:**
-```cmd
-ipconfig | findstr "IPv4"
-```
-
-### 3. Acessar de Outros Dispositivos
-
-Se o IP da máquina for `192.168.0.143`, outros dispositivos podem acessar:
-
-- **URL do servidor:** `http://192.168.0.143:3000`
-- **Endpoint de saúde:** `http://192.168.0.143:3000/health`
-- **Upload de áudio:** `POST http://192.168.0.143:3000/upload`
-
-### 4. Configurar Cliente para Servidor Remoto
-
-No arquivo `client/api_client.py`, altere a URL base:
-
-```python
-# Para servidor local
-BASE_URL = "http://localhost:3000"
-
-# Para servidor remoto (substitua pelo IP correto)
-BASE_URL = "http://192.168.0.143:3000"
-```
-
-### 5. Considerações de Segurança
-
-⚠️ **Importante:** Ao permitir acesso externo:
-
-- O servidor ficará acessível para toda a rede local
-- Certifique-se de estar em uma rede confiável
-- Para produção, considere implementar autenticação
-- Use HTTPS em ambientes de produção
-
-### 6. Firewall
-
-Certifique-se de que a porta está liberada no firewall:
-
-**macOS:**
+### Verificações de Segurança
 ```bash
-# Verificar se a porta está aberta
-sudo lsof -i :3000
+# Verificar assinatura
+codesign -dv --verbose=4 dist/AudioAI.app
+
+# Verificar quarentena
+xattr -l dist/AudioAI.app
+
+# Testar executabilidade
+dist/AudioAI.app/Contents/MacOS/AudioAI --version
 ```
 
-**Windows:**
-```cmd
-# Adicionar regra no firewall
-netsh advfirewall firewall add rule name="Audio AI Server" dir=in action=allow protocol=TCP localport=3000
+## 🔐 Segurança e Assinatura
+
+### Assinatura Ad-hoc (Padrão)
+```bash
+codesign --deep --force --verify --verbose --sign - dist/AudioAI.app
 ```
 
-## 🔐 Segurança
+### Assinatura com Certificado Developer (Opcional)
+```bash
+# Substitua TEAM_ID pelo seu Team ID
+codesign --deep --force --verify --verbose --sign "Developer ID Application: Seu Nome (TEAM_ID)" dist/AudioAI.app
+```
 
-- ✅ Chave da OpenAI fica apenas no servidor
-- ✅ Arquivos de áudio são temporários e removidos após processamento
-- ✅ Validação de tipos de arquivo
-- ✅ Limite de tamanho de arquivo (25MB)
-- ✅ Tratamento de erros robusto
+## 📊 Tamanhos Típicos
 
-## 📝 Licença
+| Componente | Tamanho Aproximado |
+|------------|-------------------|
+| Aplicação .app | ~150-200 MB |
+| Instalador .dmg | ~80-120 MB |
+| Código fonte | ~1-2 MB |
 
-Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes.
+## 🐛 Solução de Problemas
 
-## 🤝 Contribuição
+### Erro: "AudioAI não pode ser aberto"
+```bash
+# Remover quarentena manualmente
+sudo xattr -rd com.apple.quarantine /Applications/AudioAI.app
+```
 
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
+### Erro: Python não encontrado
+```bash
+# Verificar instalação do Homebrew
+brew --version
+
+# Reinstalar Python
+brew reinstall python@3.11
+```
+
+### Erro: PyInstaller falha
+```bash
+# Limpar cache do PyInstaller
+rm -rf build/ dist/ *.egg-info/
+
+# Reinstalar PyInstaller
+pip install --upgrade pyinstaller
+```
+
+### Erro: create-dmg não encontrado
+```bash
+# Instalar create-dmg
+brew install create-dmg
+```
+
+## 📝 Logs e Debug
+
+### Logs do Build
+Os scripts geram logs coloridos com informações detalhadas:
+- 🔵 **[INFO]** - Informações gerais
+- 🟢 **[SUCESSO]** - Operações bem-sucedidas  
+- 🟡 **[AVISO]** - Avisos não críticos
+- 🔴 **[ERRO]** - Erros que impedem continuação
+
+### Debug da Aplicação
+Para debug, execute a aplicação via terminal:
+```bash
+dist/AudioAI.app/Contents/MacOS/AudioAI
+```
+
+## 🔄 Atualizações
+
+Para atualizar a aplicação:
+1. Modifique o código fonte em `client/`
+2. Execute `./build_app.sh` novamente
+3. Opcionalmente, execute `./create_dmg.sh` para novo instalador
 
 ## 📞 Suporte
 
-Se encontrar problemas ou tiver dúvidas:
-
-1. Verifique a seção de **Solução de Problemas**
-2. Consulte os logs do servidor e cliente
-3. Abra uma issue no repositório
+- **Arquiteturas**: Intel x86_64 e Apple Silicon arm64
+- **macOS**: 10.15 (Catalina) ou superior
+- **Python**: 3.8+ (instalado automaticamente)
+- **Dependências**: Instaladas automaticamente
 
 ---
 
-**Desenvolvido com ❤️ usando Python, Node.js e OpenAI**
+**Desenvolvido para macOS com compatibilidade universal Intel/Apple Silicon** 🍎

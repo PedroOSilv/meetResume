@@ -43,7 +43,9 @@ class APIClient:
         
         try:
             with open(filename, "rb") as audio_file:
-                files = {"audio": (os.path.basename(filename), audio_file, "audio/wav")}
+                # Detectar tipo MIME baseado na extensão do arquivo
+                mime_type = "audio/mpeg" if filename.lower().endswith('.mp3') else "audio/wav"
+                files = {"audio": (os.path.basename(filename), audio_file, mime_type)}
                 
                 print(f"Enviando arquivo: {filename} ({os.path.getsize(filename)} bytes)")
                 

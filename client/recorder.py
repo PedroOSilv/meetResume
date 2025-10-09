@@ -11,6 +11,8 @@ from scipy.io.wavfile import write
 import threading
 import time
 import os
+from pydub import AudioSegment
+import io
 
 
 class AudioRecorder:
@@ -29,7 +31,7 @@ class AudioRecorder:
         self.recording = []
         self.is_recording = False
         self.recording_thread = None
-        self.output_filename = "recording.wav"
+        self.output_filename = "recording.mp3"
         self.input_device = None
         
         # Verificar dispositivos disponíveis e configurar BlackHole
@@ -155,10 +157,30 @@ class AudioRecorder:
                 
                 # Garantir que o nome do arquivo seja válido
                 if not self.output_filename or self.output_filename.strip() == "":
-                    self.output_filename = "recording.wav"
+                    self.output_filename = "recording.mp3"
                 
-                # Salvar arquivo WAV
-                write(self.output_filename, self.sample_rate, audio_data)
+                # Criar arquivo WAV temporário primeiro
+                temp_wav_filename = "temp_recording.wav"
+                write(temp_wav_filename, self.sample_rate, audio_data)
+                
+                # Converter WAV para MP3 usando pydub
+                try:
+                    audio_segment = AudioSegment.from_wav(temp_wav_filename)
+                    audio_segment.export(self.output_filename, format="mp3", bitrate="128k")
+                    
+                    # Remover arquivo WAV temporário
+                    if os.path.exists(temp_wav_filename):
+                        os.remove(temp_wav_filename)
+                        
+                except Exception as e:
+                    print(f"Erro na conversão para MP3: {e}")
+                    # Fallback: manter como WAV se a conversão falhar
+                    if os.path.exists(temp_wav_filename):
+                        wav_filename = self.output_filename.replace('.mp3', '.wav')
+                        os.rename(temp_wav_filename, wav_filename)
+                        self.output_filename = wav_filename
+                        print(f"Fallback: arquivo salvo como WAV - {wav_filename}")
+                    return ""
                 
                 # Verificar se o arquivo foi criado com sucesso
                 if os.path.exists(self.output_filename) and os.path.getsize(self.output_filename) > 0:
@@ -210,10 +232,10 @@ class AudioRecorder:
         Define o nome do arquivo de saída
         
         Args:
-            filename (str): Nome do arquivo (deve terminar com .wav)
+            filename (str): Nome do arquivo (deve terminar com .mp3)
         """
-        if not filename.endswith('.wav'):
-            filename += '.wav'
+        if not filename.endswith('.mp3'):
+            filename += '.mp3'
         self.output_filename = filename
     
     @staticmethod

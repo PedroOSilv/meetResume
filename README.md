@@ -95,6 +95,56 @@ python main.py
 3. **Clique em "⏹️ Parar e Enviar"** quando terminar
 4. **Aguarde o processamento** - a resposta aparecerá na tela
 
+## 📦 Gerar Executável (Distribuição)
+
+Para criar um executável standalone que não requer Python instalado:
+
+### Opção 1: Script Automático (Recomendado)
+
+```bash
+cd audio-ai-app/client
+
+# Para macOS/Linux
+./build.sh
+
+# Para Windows ou usando Python diretamente
+python build.py
+```
+
+### Opção 2: Manual com PyInstaller
+
+```bash
+cd audio-ai-app/client
+
+# Instalar PyInstaller
+pip install pyinstaller
+
+# Gerar executável
+pyinstaller build.spec
+```
+
+### Resultado do Build
+
+Após o build bem-sucedido:
+- **Executável**: `dist/AudioAI` (macOS/Linux) ou `dist/AudioAI.exe` (Windows)
+- **Bundle macOS**: `dist/AudioAI.app` (aplicação nativa macOS)
+- **Tamanho**: ~65MB (inclui todas as dependências)
+
+### Como Distribuir
+
+1. **Copie a pasta `dist/`** para o computador de destino
+2. **Execute o arquivo** `AudioAI` (ou `AudioAI.exe`)
+3. **Certifique-se** de que o servidor Node.js está rodando na rede
+
+### Configurar Cliente para Servidor Remoto
+
+Se o servidor estiver em outro computador:
+
+```python
+# Edite api_client.py ou configure via interface
+BASE_URL = "http://IP_DO_SERVIDOR:3030"
+```
+
 ## 🔧 Desenvolvimento
 
 ### Executar em Modo de Desenvolvimento
@@ -198,6 +248,77 @@ Processa arquivo de áudio
   "processing_time_ms": 2500,
   "timestamp": "2024-01-01T12:00:00.000Z"
 }
+```
+
+## 🌐 Acesso Remoto (Outros Dispositivos na Rede)
+
+Para permitir que outros dispositivos na mesma rede acessem o servidor:
+
+### 1. Configurar o Servidor para Acesso Externo
+
+O servidor já está configurado para aceitar conexões de qualquer IP (`HOST=0.0.0.0`).
+
+**Verificar configuração no `.env`:**
+```env
+HOST=0.0.0.0  # Aceita conexões de qualquer IP
+PORT=3000     # Porta do servidor
+```
+
+### 2. Descobrir o IP da Máquina
+
+**No macOS/Linux:**
+```bash
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+**No Windows:**
+```cmd
+ipconfig | findstr "IPv4"
+```
+
+### 3. Acessar de Outros Dispositivos
+
+Se o IP da máquina for `192.168.0.143`, outros dispositivos podem acessar:
+
+- **URL do servidor:** `http://192.168.0.143:3000`
+- **Endpoint de saúde:** `http://192.168.0.143:3000/health`
+- **Upload de áudio:** `POST http://192.168.0.143:3000/upload`
+
+### 4. Configurar Cliente para Servidor Remoto
+
+No arquivo `client/api_client.py`, altere a URL base:
+
+```python
+# Para servidor local
+BASE_URL = "http://localhost:3000"
+
+# Para servidor remoto (substitua pelo IP correto)
+BASE_URL = "http://192.168.0.143:3000"
+```
+
+### 5. Considerações de Segurança
+
+⚠️ **Importante:** Ao permitir acesso externo:
+
+- O servidor ficará acessível para toda a rede local
+- Certifique-se de estar em uma rede confiável
+- Para produção, considere implementar autenticação
+- Use HTTPS em ambientes de produção
+
+### 6. Firewall
+
+Certifique-se de que a porta está liberada no firewall:
+
+**macOS:**
+```bash
+# Verificar se a porta está aberta
+sudo lsof -i :3000
+```
+
+**Windows:**
+```cmd
+# Adicionar regra no firewall
+netsh advfirewall firewall add rule name="Audio AI Server" dir=in action=allow protocol=TCP localport=3000
 ```
 
 ## 🔐 Segurança

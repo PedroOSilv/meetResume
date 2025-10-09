@@ -16,6 +16,8 @@ import cors from "cors";
 dotenv.config();
 
 const app = express();
+// Configuração de host para aceitar conexões externas
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 
 // Verificar se a chave da OpenAI está configurada
@@ -30,8 +32,28 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
-// Configuração do prompt personalizado para ChatGPT
-const CHATGPT_PROMPT = process.env.CHATGPT_PROMPT || `Você é um assistente inteligente que analisa transcrições de áudio. 
+// Função para carregar prompt do arquivo .md
+function loadPromptFromFile() {
+    try {
+        const promptPath = path.join(process.cwd(), 'prompt.md');
+        if (fs.existsSync(promptPath)) {
+            const promptContent = fs.readFileSync(promptPath, 'utf8');
+            console.log("📄 Prompt carregado do arquivo prompt.md");
+            return promptContent;
+        } else {
+            console.log("⚠️  Arquivo prompt.md não encontrado, usando prompt padrão");
+            return getDefaultPrompt();
+        }
+    } catch (error) {
+        console.error("❌ Erro ao carregar prompt.md:", error.message);
+        console.log("🔄 Usando prompt padrão");
+        return getDefaultPrompt();
+    }
+}
+
+// Prompt padrão como fallback
+function getDefaultPrompt() {
+    return `Você é um assistente inteligente que analisa transcrições de áudio. 
 
 Sua função é:
 1. Analisar o conteúdo da transcrição
@@ -40,6 +62,10 @@ Sua função é:
 4. Sugerir ações ou próximos passos quando relevante
 
 Responda de forma clara, organizada e útil em português.`;
+}
+
+// Configuração do prompt personalizado para ChatGPT
+const CHATGPT_PROMPT = process.env.CHATGPT_PROMPT || loadPromptFromFile();
 
 // Middleware
 app.use(cors());
@@ -236,10 +262,11 @@ app.use("*", (req, res) => {
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log("🚀 ================================");
     console.log(`🎙️  Servidor Audio AI Backend`);
     console.log(`🌐 Rodando em: http://localhost:${PORT}`);
+    console.log(`🌍 Acesso externo: http://192.168.0.143:${PORT}`);
     console.log(`🤖 OpenAI API: ${process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada'}`);
     console.log("🚀 ================================");
     console.log("");

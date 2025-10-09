@@ -1,0 +1,18 @@
+# Dependências para Aplicação Desktop Audio AI Client
+# Interface gráfica
+PySide6>=6.6.0
+
+# Gravação de áudio
+sounddevice>=0.4.6
+scipy>=1.10.0
+numpy>=1.21.0
+
+# Comunicação HTTP
+requests>=2.28.0
+
+# Utilitários adicionais
+typing-extensions>=4.5.0
+
+# Build e empacotamento
+pyinstaller>=5.13.0
+pydub>=0.25.1

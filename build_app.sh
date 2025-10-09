@@ -38,7 +38,18 @@ echo ""
 
 # Detectar arquitetura do sistema
 ARCH=$(uname -m)
-if [[ "$ARCH" == "arm64" ]]; then
+
+# Verificar se deve forçar build para Intel
+if [[ "$FORCE_INTEL" == "1" ]]; then
+    print_warning "🔧 FORÇANDO BUILD PARA INTEL (x86_64)"
+    ARCH="x86_64"
+    PYTHON_PATH="/usr/local/bin/python3.11"
+    HOMEBREW_PREFIX="/usr/local"
+    PIP_PATH="/usr/local/bin/pip3.11"
+    export ARCHFLAGS="-arch x86_64"
+    export _PYTHON_HOST_PLATFORM="macosx-10.9-x86_64"
+    export MACOSX_DEPLOYMENT_TARGET="10.9"
+elif [[ "$ARCH" == "arm64" ]]; then
     print_info "🔍 Detectado: Apple Silicon (M1/M2/M3) - ARM64"
     PYTHON_PATH="/opt/homebrew/bin/python3"
     HOMEBREW_PREFIX="/opt/homebrew"

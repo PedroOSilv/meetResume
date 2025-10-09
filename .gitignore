@@ -24,6 +24,11 @@ client/recording.wav
 client/*.wav
 client/*.mp3
 client/*.m4a
+recording.wav
+recording.mp3
+*.wav
+*.mp3
+*.m4a
 
 # Uploads do servidor
 server/uploads/*
@@ -31,9 +36,14 @@ server/uploads/*
 
 # Arquivos de distribuição e build
 *.zip
+*.dmg
+*.pkg
+dist/
 dist_*/
+build/
 build_*/
 AudioAI_Desktop_Installer/
+rw.*.dmg
 
 # Cache Python
 __pycache__/
@@ -61,6 +71,7 @@ wheels/
 venv/
 env/
 ENV/
+audioai_build_env/
 
 # IDEs
 .vscode/

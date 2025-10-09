@@ -12,7 +12,10 @@ import threading
 import time
 import os
 from pydub import AudioSegment
+from pydub.utils import which
 import io
+import subprocess
+import shutil
 
 
 class AudioRecorder:
@@ -41,13 +44,74 @@ class AudioRecorder:
         self.recording_thread = None
         self.mic_recording_thread = None
         
-        # Dispositivos de áudio
-        self.input_device = None
+        # Configurações de dispositivos
+        self.system_device = None
         self.microphone_device = None
+        self.output_filename = "recording.mp3"
         
-        # Configurar dispositivos
+        # Verificar disponibilidade do ffmpeg
+        self.ffmpeg_available = self._check_ffmpeg_availability()
+        if not self.ffmpeg_available:
+            print("⚠️  FFmpeg não encontrado - arquivos serão salvos como WAV")
+        
+        # Configurar dispositivos de áudio
         self._check_audio_devices()
         self._setup_audio_devices()
+    
+    def _check_ffmpeg_availability(self):
+        """
+        Verifica se o ffmpeg está disponível no sistema
+        
+        Returns:
+            bool: True se ffmpeg estiver disponível, False caso contrário
+        """
+        # Método 1: Usar pydub.utils.which
+        try:
+            ffmpeg_path = which("ffmpeg")
+            if ffmpeg_path:
+                print(f"✅ FFmpeg encontrado: {ffmpeg_path}")
+                return True
+        except Exception:
+            pass
+        
+        # Método 2: Verificar caminhos comuns do Homebrew
+        common_paths = [
+            "/opt/homebrew/bin/ffmpeg",  # Apple Silicon
+            "/usr/local/bin/ffmpeg",     # Intel Mac
+            "/usr/bin/ffmpeg",           # Sistema
+        ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                # Configurar PATH para pydub
+                current_path = os.environ.get('PATH', '')
+                bin_dir = os.path.dirname(path)
+                if bin_dir not in current_path:
+                    os.environ['PATH'] = f"{bin_dir}:{current_path}"
+                print(f"✅ FFmpeg encontrado: {path}")
+                return True
+        
+        # Método 3: Tentar executar ffmpeg diretamente
+        try:
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("✅ FFmpeg disponível via PATH")
+                return True
+        except Exception:
+            pass
+        
+        # Método 4: Verificar se Homebrew está instalado e tentar instalar
+        try:
+            homebrew_result = subprocess.run(['brew', '--version'], 
+                                           capture_output=True, text=True, timeout=5)
+            if homebrew_result.returncode == 0:
+                print("⚠️  FFmpeg não encontrado, mas Homebrew está disponível")
+                print("💡 Execute: brew install ffmpeg")
+        except Exception:
+            pass
+        
+        return False
         
         # Arquivo de saída
         self.output_filename = "recording.mp3"
@@ -323,7 +387,7 @@ class AudioRecorder:
         return mixed_audio
     
     def _save_audio_file(self, audio_data):
-        """Salva dados de áudio em arquivo MP3"""
+        """Salva dados de áudio em arquivo MP3 ou WAV"""
         try:
             # Normalizar áudio para evitar clipping
             if audio_data.max() > 0:
@@ -340,24 +404,42 @@ class AudioRecorder:
             temp_wav_filename = "temp_recording.wav"
             write(temp_wav_filename, self.sample_rate, audio_data)
             
-            # Converter WAV para MP3 usando pydub
-            try:
-                audio_segment = AudioSegment.from_wav(temp_wav_filename)
-                audio_segment.export(self.output_filename, format="mp3", bitrate="128k")
-                
-                # Remover arquivo WAV temporário
-                if os.path.exists(temp_wav_filename):
-                    os.remove(temp_wav_filename)
+            # Tentar conversão para MP3 apenas se ffmpeg estiver disponível
+            if self.ffmpeg_available and self.output_filename.endswith('.mp3'):
+                try:
+                    # Configurar AudioSegment para usar ffmpeg
+                    AudioSegment.converter = which("ffmpeg") or "ffmpeg"
+                    AudioSegment.ffmpeg = which("ffmpeg") or "ffmpeg"
+                    AudioSegment.ffprobe = which("ffprobe") or "ffprobe"
                     
-            except Exception as e:
-                print(f"Erro na conversão para MP3: {e}")
-                # Fallback: manter como WAV se a conversão falhar
-                if os.path.exists(temp_wav_filename):
+                    audio_segment = AudioSegment.from_wav(temp_wav_filename)
+                    audio_segment.export(self.output_filename, format="mp3", bitrate="128k")
+                    
+                    # Remover arquivo WAV temporário se conversão foi bem-sucedida
+                    if os.path.exists(temp_wav_filename):
+                        os.remove(temp_wav_filename)
+                        
+                    print(f"✅ Arquivo MP3 criado com sucesso: {self.output_filename}")
+                    
+                except Exception as e:
+                    print(f"⚠️  Erro na conversão para MP3: {e}")
+                    # Fallback para WAV
                     wav_filename = self.output_filename.replace('.mp3', '.wav')
+                    if os.path.exists(temp_wav_filename):
+                        os.rename(temp_wav_filename, wav_filename)
+                        self.output_filename = wav_filename
+                        print(f"📁 Fallback: arquivo salvo como WAV - {wav_filename}")
+            else:
+                # Salvar diretamente como WAV se ffmpeg não estiver disponível
+                if self.output_filename.endswith('.mp3'):
+                    wav_filename = self.output_filename.replace('.mp3', '.wav')
+                else:
+                    wav_filename = self.output_filename
+                
+                if os.path.exists(temp_wav_filename):
                     os.rename(temp_wav_filename, wav_filename)
                     self.output_filename = wav_filename
-                    print(f"Fallback: arquivo salvo como WAV - {wav_filename}")
-                return ""
+                    print(f"📁 Arquivo salvo como WAV: {wav_filename}")
             
             # Verificar se o arquivo foi criado com sucesso
             if os.path.exists(self.output_filename) and os.path.getsize(self.output_filename) > 0:

@@ -36,15 +36,16 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 
 // Verificar se a chave da OpenAI está configurada
-if (!process.env.OPENAI_API_KEY) {
-    console.error("❌ ERRO: OPENAI_API_KEY não está configurada no arquivo .env");
-    console.log("Crie um arquivo .env com: OPENAI_API_KEY=sua_chave_aqui");
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
+
+if (!OPENAI_API_KEY) {
+    console.error("❌ ERRO: OPENAI_API_KEY não está configurada");
     process.exit(1);
 }
 
 // Inicializar OpenAI
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
+    apiKey: OPENAI_API_KEY
 });
 
 // Função para carregar prompt do arquivo .md
@@ -281,32 +282,40 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
             });
         }
 
-        console.log("🎤 Modo desenvolvimento - simulando processamento...");
+        console.log("🎤 Processando áudio com OpenAI Whisper...");
         
-        // Modo desenvolvimento - simular transcrição
-        const transcription = "Esta é uma transcrição simulada para modo de desenvolvimento. O áudio foi recebido com sucesso.";
-        console.log(`📝 Transcrição simulada: "${transcription}"`);
-
-        console.log("🤖 Simulando processamento com IA...");
+        // Transcrever áudio usando OpenAI Whisper
+        const transcriptionResponse = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(audioFile.path),
+            model: "whisper-1",
+            language: "pt"
+        });
         
-        // Resposta simulada para desenvolvimento
-        const chatResponse = `## Resumo da Gravação (Modo Desenvolvimento)
+        const transcription = transcriptionResponse.text;
+        console.log(`📝 Transcrição: "${transcription}"`);
 
-**Transcrição:** ${transcription}
-
-**Análise:**
-- ✅ Áudio recebido com sucesso
-- 📊 Tamanho do arquivo: ${audioFile.size} bytes
-- 🎯 Modo: Desenvolvimento (sem OpenAI)
-
-**Próximos passos:**
-1. Configure uma chave válida da OpenAI no arquivo .env
-2. Reinicie o servidor para ativar o processamento real
-3. Teste novamente com áudio real
-
-**Nota:** Esta é uma resposta simulada para desenvolvimento.`;
+        console.log("🤖 Processando com ChatGPT...");
         
-        console.log(`🧠 Análise simulada concluída`);
+        // Processar transcrição com ChatGPT
+        const chatResponse = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: CHATGPT_PROMPT
+                },
+                {
+                    role: "user",
+                    content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
+                }
+            ],
+            max_tokens: 1000,
+            temperature: 0.7
+        });
+        
+        const analysis = chatResponse.choices[0].message.content;
+        
+        console.log(`🧠 Análise concluída`);
 
         // Limpar arquivo temporário
         fs.unlinkSync(audioFile.path);
@@ -317,7 +326,7 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
         // Retornar transcrição e análise do ChatGPT
         res.json({
             transcript: transcription,
-            analysis: chatResponse,
+            analysis: analysis,
             processing_time_ms: processingTime,
             timestamp: new Date().toISOString()
         });

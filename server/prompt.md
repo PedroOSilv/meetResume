@@ -22,8 +22,8 @@ Use o formato:
 - Se o valor ainda depende de confirmação, adicione a nota “(a confirmar após [motivo])”.  
 - Utilize o símbolo de euro (€) e formatação com vírgula decimal (ex: € 5.320,00).
 
-### 4. ⸻ (divisor visual)
-Insira uma linha separadora “⸻” entre a parte técnica e a parte comportamental.
+### 4. Estrutura visual
+Use espaçamento adequado entre seções para separar a parte técnica da parte comportamental, sem linhas divisórias.
 
 ### 5. 👩‍⚕️ Perfil e observações da paciente:
 Inclua as seguintes informações, se disponíveis:  
@@ -45,18 +45,22 @@ Inclua as seguintes informações, se disponíveis:
 
 ```
 🦷 VIDEOCHAMADA – [Nome da paciente] ([idade] anos, [país])
+
 Procedimentos indicados:
-   • [procedimento 1]
-   • [procedimento 2]
+• [procedimento 1]
+• [procedimento 2]
+
 💶 Valor total estimado: € [valor]
-⸻
+
 👩‍⚕️ Perfil e observações da paciente:
-   • [informações pessoais]
-   • [motivação estética]
-   • [histórico clínico]
-   • [perfil emocional]
-   • [objeções e comparações]
-   • [intenção de início]
+• [informações pessoais]
+• [motivação estética]
+• [histórico clínico]
+• [perfil emocional]
+• [objeções e comparações]
+• [intenção de início]
 ```
+
+**Importante:** Mantenha o formato simples, sem formatação HTML ou markdown complexo. Use apenas quebras de linha e bullets simples.
 
 A saida não precisa ser em markdown, pode seguir estritamente o formato final do resumo.

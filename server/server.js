@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Servidor Node.js - Audio AI Backend
+ * Servidor Node.js - Omni Resume Backend
  * Servidor Express que recebe áudio, processa com OpenAI e retorna resposta
  */
 
@@ -11,6 +11,9 @@ import path from "path";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import cors from "cors";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+// import { supabase, checkAuthTable, createAdminUser } from "./supabase.js";
 
 // Carregar variáveis de ambiente
 dotenv.config();
@@ -67,9 +70,134 @@ Responda de forma clara, organizada e útil em português.`;
 // Configuração do prompt personalizado para ChatGPT
 const CHATGPT_PROMPT = process.env.CHATGPT_PROMPT || loadPromptFromFile();
 
+// Inicializar Supabase e criar usuário admin
+async function initializeAuth() {
+    try {
+        console.log("🔐 Inicializando sistema de autenticação...");
+        
+        // Verificar se a tabela existe
+        const tableExists = await checkAuthTable();
+        
+        if (!tableExists) {
+            console.log("📋 Criando tabela audio_ai_users no Supabase...");
+            console.log("⚠️  Execute o seguinte SQL no Supabase:");
+            console.log(`
+CREATE TABLE audio_ai_users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    role VARCHAR(50) DEFAULT 'user',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Inserir usuário admin
+INSERT INTO audio_ai_users (email, password, name, role) 
+VALUES ('admin@institutoareluna.pt', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrador', 'admin');
+            `);
+            return;
+        }
+        
+        // Criar usuário admin se não existir
+        await createAdminUser();
+        
+        console.log("✅ Sistema de autenticação inicializado");
+    } catch (error) {
+        console.error("❌ Erro ao inicializar autenticação:", error.message);
+    }
+}
+
+// Inicializar autenticação
+// initializeAuth();
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Servir arquivos estáticos do cliente web
+const webClientPath = path.join(process.cwd(), '..', 'web-client');
+app.use(express.static(webClientPath));
+
+// Middleware de autenticação
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ message: 'Token de acesso necessário' });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET || 'audio_ai_secret_key', (err, user) => {
+        if (err) {
+            return res.status(403).json({ message: 'Token inválido' });
+        }
+        req.user = user;
+        next();
+    });
+};
+
+// Rota raiz para servir o cliente web
+app.get("/", (req, res) => {
+    res.sendFile(path.join(webClientPath, 'index.html'));
+});
+
+// Rota de login
+app.get("/login", (req, res) => {
+    res.sendFile(path.join(webClientPath, 'login.html'));
+});
+
+// Rotas de autenticação (sistema simples para teste)
+app.post("/api/auth/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email e senha são obrigatórios' });
+        }
+        
+        // Usuário admin hardcoded para teste
+        if (email === 'admin@institutoareluna.pt' && password === 'admin123') {
+            // Gerar token JWT
+            const token = jwt.sign(
+                { 
+                    id: 1, 
+                    email: email, 
+                    role: 'admin' 
+                },
+                process.env.JWT_SECRET || 'audio_ai_secret_key',
+                { expiresIn: '24h' }
+            );
+            
+            res.json({
+                message: 'Login realizado com sucesso',
+                token,
+                user: {
+                    id: 1,
+                    email: email,
+                    name: 'Administrador',
+                    role: 'admin'
+                }
+            });
+        } else {
+            res.status(401).json({ message: 'Credenciais inválidas' });
+        }
+        
+    } catch (error) {
+        console.error('Erro no login:', error);
+        res.status(500).json({ message: 'Erro interno do servidor' });
+    }
+});
+
+// Rota para verificar token
+app.get("/api/auth/verify", authenticateToken, (req, res) => {
+    res.json({ user: req.user });
+});
+
+// Rota para logout
+app.post("/api/auth/logout", (req, res) => {
+    res.json({ message: 'Logout realizado com sucesso' });
+});
 
 // Configurar multer para upload de arquivos
 const storage = multer.diskStorage({
@@ -113,7 +241,7 @@ app.get("/health", (req, res) => {
 });
 
 // Rota principal para upload e processamento de áudio
-app.post("/upload", upload.single("audio"), async (req, res) => {
+app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) => {
     const startTime = Date.now();
     
     try {
@@ -264,7 +392,7 @@ app.use("*", (req, res) => {
 // Iniciar servidor
 app.listen(PORT, HOST, () => {
     console.log("🚀 ================================");
-    console.log(`🎙️  Servidor Audio AI Backend`);
+    console.log(`🎙️  Servidor Omni Resume Backend`);
     console.log(`🌐 Rodando em: http://localhost:${PORT}`);
     console.log(`🌍 Acesso externo: http://192.168.0.143:${PORT}`);
     console.log(`🤖 OpenAI API: ${process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada'}`);

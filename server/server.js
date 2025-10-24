@@ -284,52 +284,65 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
 
         console.log("🎤 Processando áudio com OpenAI Whisper...");
         
-        // Transcrever áudio usando OpenAI Whisper
-        const transcriptionResponse = await openai.audio.transcriptions.create({
-            file: fs.createReadStream(audioFile.path),
-            model: "whisper-1",
-            language: "pt"
-        });
-        
-        const transcription = transcriptionResponse.text;
-        console.log(`📝 Transcrição: "${transcription}"`);
+        try {
+            // Transcrever áudio usando OpenAI Whisper
+            const transcriptionResponse = await openai.audio.transcriptions.create({
+                file: fs.createReadStream(audioFile.path),
+                model: "whisper-1",
+                language: "pt"
+            });
+            
+            const transcription = transcriptionResponse.text;
+            console.log(`📝 Transcrição: "${transcription}"`);
 
-        console.log("🤖 Processando com ChatGPT...");
-        
-        // Processar transcrição com ChatGPT
-        const chatResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: CHATGPT_PROMPT
-                },
-                {
-                    role: "user",
-                    content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
-                }
-            ],
-            max_tokens: 1000,
-            temperature: 0.7
-        });
-        
-        const analysis = chatResponse.choices[0].message.content;
-        
-        console.log(`🧠 Análise concluída`);
+            console.log("🤖 Processando com ChatGPT...");
+            
+            // Processar transcrição com ChatGPT
+            const chatResponse = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    {
+                        role: "system",
+                        content: CHATGPT_PROMPT
+                    },
+                    {
+                        role: "user",
+                        content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
+                    }
+                ],
+                max_tokens: 1000,
+                temperature: 0.7
+            });
+            
+            const analysis = chatResponse.choices[0].message.content;
+            
+            // Limpar arquivo temporário
+            fs.unlinkSync(audioFile.path);
 
-        // Limpar arquivo temporário
-        fs.unlinkSync(audioFile.path);
+            const processingTime = Date.now() - startTime;
+            console.log(`✅ Processamento completo em ${processingTime}ms`);
 
-        const processingTime = Date.now() - startTime;
-        console.log(`✅ Processamento completo em ${processingTime}ms`);
-
-        // Retornar transcrição e análise do ChatGPT
-        res.json({
-            transcript: transcription,
-            analysis: analysis,
-            processing_time_ms: processingTime,
-            timestamp: new Date().toISOString()
-        });
+            // Retornar transcrição e análise do ChatGPT
+            res.json({
+                transcript: transcription,
+                analysis: analysis,
+                processing_time_ms: processingTime,
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (openaiError) {
+            console.error("❌ Erro na OpenAI:", openaiError);
+            
+            // Limpar arquivo temporário
+            fs.unlinkSync(audioFile.path);
+            
+            // Retornar erro específico da OpenAI
+            res.status(500).json({
+                error: "Erro ao processar com OpenAI: " + openaiError.message,
+                details: "Tente novamente ou use um arquivo menor"
+            });
+            return;
+        }
 
     } catch (error) {
         console.error("❌ Erro no processamento:", error);

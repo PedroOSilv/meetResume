@@ -136,6 +136,24 @@ initializeAuth();
 app.use(cors());
 app.use(express.json());
 
+// Middleware de timeout para evitar travamentos
+app.use((req, res, next) => {
+    const timeout = setTimeout(() => {
+        if (!res.headersSent) {
+            res.status(504).json({
+                error: 'Timeout do servidor',
+                message: 'A operação demorou muito para ser processada'
+            });
+        }
+    }, 50000); // 50 segundos
+
+    res.on('finish', () => {
+        clearTimeout(timeout);
+    });
+
+    next();
+});
+
 // Servir arquivos estáticos do cliente web
 const webClientPath = path.join(process.cwd(), 'web-client');
 app.use(express.static(webClientPath));

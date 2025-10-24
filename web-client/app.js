@@ -422,8 +422,16 @@ class AudioAIClient {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Erro ao processar áudio no servidor');
+                let errorMessage = 'Erro ao processar áudio no servidor';
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (jsonError) {
+                    // Se não conseguir fazer parse do JSON, usar o texto da resposta
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(errorMessage);
             }
 
             const result = await response.json();

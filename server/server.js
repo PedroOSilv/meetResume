@@ -136,7 +136,7 @@ app.use(cors());
 app.use(express.json());
 
 // Servir arquivos estáticos do cliente web
-const webClientPath = path.join(process.cwd(), '..', 'web-client');
+const webClientPath = path.join(process.cwd(), 'web-client');
 app.use(express.static(webClientPath));
 
 // Middleware de autenticação

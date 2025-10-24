@@ -301,12 +301,17 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
         console.log("🎤 Processando áudio com OpenAI Whisper...");
         
         try {
-            // Transcrever áudio usando OpenAI Whisper
-            const transcriptionResponse = await openai.audio.transcriptions.create({
-                file: fs.createReadStream(audioFile.path),
-                model: "whisper-1",
-                language: "pt"
-            });
+            // Transcrever áudio usando OpenAI Whisper com timeout
+            const transcriptionResponse = await Promise.race([
+                openai.audio.transcriptions.create({
+                    file: fs.createReadStream(audioFile.path),
+                    model: "whisper-1",
+                    language: "pt"
+                }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout na transcrição')), 30000)
+                )
+            ]);
             
             const transcription = transcriptionResponse.text;
             console.log(`📝 Transcrição: "${transcription}"`);

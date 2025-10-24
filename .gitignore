@@ -3,6 +3,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json
 
 # Arquivos de ambiente
 .env
@@ -10,14 +11,21 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.example
 
 # Logs
 logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Arquivos temporários
 *.tmp
 *.temp
+*.swp
+*.swo
+*~
 
 # Arquivos de áudio gravados
 client/recording.wav
@@ -29,6 +37,8 @@ recording.mp3
 *.wav
 *.mp3
 *.m4a
+*.webm
+*.ogg
 
 # Uploads do servidor
 server/uploads/*
@@ -72,6 +82,7 @@ venv/
 env/
 ENV/
 audioai_build_env/
+.venv/
 
 # IDEs
 .vscode/
@@ -92,3 +103,32 @@ Thumbs.db
 # Arquivos de backup
 *.bak
 *.backup
+
+# Arquivos de configuração sensíveis
+*.key
+*.pem
+*.p12
+*.jks
+*.p8
+*.p12
+*.pfx
+
+# Arquivos de sessão
+*.session
+*.sess
+
+# Arquivos de cache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+
+# Arquivos de teste
+coverage/
+.nyc_output/
+test-results/
+
+# Arquivos de documentação gerados
+docs/_build/
+site/
+.vercel

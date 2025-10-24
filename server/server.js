@@ -13,7 +13,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-// import { supabase, checkAuthTable, createAdminUser } from "./supabase.js";
+import { supabase, checkAuthTable, createAdminUser } from "./supabase.js";
 
 // Carregar variáveis de ambiente
 dotenv.config();
@@ -109,7 +109,7 @@ VALUES ('admin@institutoareluna.pt', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC
 }
 
 // Inicializar autenticação
-// initializeAuth();
+initializeAuth();
 
 // Middleware
 app.use(cors());
@@ -147,7 +147,7 @@ app.get("/login", (req, res) => {
     res.sendFile(path.join(webClientPath, 'login.html'));
 });
 
-// Rotas de autenticação (sistema simples para teste)
+// Rotas de autenticação com Supabase
 app.post("/api/auth/login", async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -156,32 +156,46 @@ app.post("/api/auth/login", async (req, res) => {
             return res.status(400).json({ message: 'Email e senha são obrigatórios' });
         }
         
-        // Usuário admin hardcoded para teste
-        if (email === 'admin@institutoareluna.pt' && password === 'admin123') {
-            // Gerar token JWT
-            const token = jwt.sign(
-                { 
-                    id: 1, 
-                    email: email, 
-                    role: 'admin' 
-                },
-                process.env.JWT_SECRET || 'audio_ai_secret_key',
-                { expiresIn: '24h' }
-            );
-            
-            res.json({
-                message: 'Login realizado com sucesso',
-                token,
-                user: {
-                    id: 1,
-                    email: email,
-                    name: 'Administrador',
-                    role: 'admin'
-                }
-            });
-        } else {
-            res.status(401).json({ message: 'Credenciais inválidas' });
+        // Buscar usuário no Supabase
+        const { data: user, error } = await supabase
+            .from('audio_ai_users')
+            .select('*')
+            .eq('email', email)
+            .single();
+        
+        if (error || !user) {
+            return res.status(401).json({ message: 'Credenciais inválidas' });
         }
+        
+        // Verificar senha
+        const bcrypt = await import('bcryptjs');
+        const isValidPassword = await bcrypt.compare(password, user.password);
+        
+        if (!isValidPassword) {
+            return res.status(401).json({ message: 'Credenciais inválidas' });
+        }
+        
+        // Gerar token JWT
+        const token = jwt.sign(
+            { 
+                id: user.id, 
+                email: user.email, 
+                role: user.role 
+            },
+            process.env.JWT_SECRET || 'audio_ai_secret_key',
+            { expiresIn: '24h' }
+        );
+        
+        res.json({
+            message: 'Login realizado com sucesso',
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role
+            }
+        });
         
     } catch (error) {
         console.error('Erro no login:', error);

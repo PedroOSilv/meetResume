@@ -333,6 +333,7 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
 
     } catch (error) {
         console.error("❌ Erro no processamento:", error);
+        console.error("❌ Stack trace:", error.stack);
 
         // Limpar arquivo se existir
         if (req.file && fs.existsSync(req.file.path)) {
@@ -359,6 +360,9 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
         } else if (error.message.includes('network') || error.message.includes('timeout')) {
             errorMessage = "Erro de conexão com OpenAI. Tente novamente.";
             statusCode = 503;
+        } else if (error.message.includes('FUNCTION_INVOCATION_FAILED')) {
+            errorMessage = "Timeout do servidor. Tente com um arquivo menor.";
+            statusCode = 504;
         }
 
         res.status(statusCode).json({

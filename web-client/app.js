@@ -554,8 +554,7 @@ class AudioAIClient {
     getAuthHeaders() {
         const token = localStorage.getItem('audio_ai_token');
         return {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Authorization': `Bearer ${token}`
         };
     }
 

@@ -45,7 +45,9 @@ if (!OPENAI_API_KEY) {
 
 // Inicializar OpenAI
 const openai = new OpenAI({
-    apiKey: OPENAI_API_KEY
+    apiKey: OPENAI_API_KEY,
+    timeout: 30000, // 30 segundos
+    maxRetries: 3
 });
 
 // Função para carregar prompt do arquivo .md
@@ -306,6 +308,9 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
             let analysis = "";
             
             try {
+                // Verificar conectividade primeiro
+                console.log("🔍 Verificando conectividade com OpenAI...");
+                
                 // Transcrever áudio usando OpenAI Whisper
                 const transcriptionResponse = await openai.audio.transcriptions.create({
                     file: fs.createReadStream(audioFile.path),
@@ -339,6 +344,9 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 
             } catch (openaiError) {
                 console.error("❌ Erro na OpenAI, usando fallback:", openaiError.message);
+                console.error("❌ Erro completo:", JSON.stringify(openaiError, null, 2));
+                console.error("❌ Status:", openaiError.status);
+                console.error("❌ Code:", openaiError.code);
                 
                 // Fallback: transcrição simulada
                 transcription = "Transcrição não disponível - erro de conexão com OpenAI";

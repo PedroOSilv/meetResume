@@ -128,3 +128,4 @@ class LoginManager {
 document.addEventListener('DOMContentLoaded', () => {
     new LoginManager();
 });
+

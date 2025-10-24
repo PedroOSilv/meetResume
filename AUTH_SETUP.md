@@ -122,3 +122,4 @@ audio-ai-app/
 ### Erro 401 Unauthorized
 - Verifique se está logado
 - Verifique se o token não expirou
+

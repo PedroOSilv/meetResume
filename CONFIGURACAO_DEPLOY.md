@@ -111,3 +111,4 @@ Se houver problemas:
 2. Confirme se a chave OpenAI está correta
 3. Teste a conexão com Supabase
 4. Verifique os logs do Vercel
+

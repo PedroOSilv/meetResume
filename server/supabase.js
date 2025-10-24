@@ -6,15 +6,32 @@ dotenv.config();
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ ERRO: SUPABASE_URL e SUPABASE_ANON_KEY devem estar configuradas no arquivo .env");
-    console.log("Adicione ao .env:");
-    console.log("SUPABASE_URL=sua_url_aqui");
-    console.log("SUPABASE_ANON_KEY=sua_chave_aqui");
-    process.exit(1);
-}
+// Mock do Supabase para desenvolvimento
+const mockSupabase = {
+    from: (table) => ({
+        select: (columns = '*') => ({
+            eq: (column, value) => ({ 
+                data: null, 
+                error: { code: 'PGRST116', message: 'Table not found' } 
+            }),
+            limit: (count) => ({ 
+                data: null, 
+                error: { code: 'PGRST116', message: 'Table not found' } 
+            })
+        }),
+        insert: (data) => ({
+            select: (columns = '*') => ({ 
+                data: null, 
+                error: { code: '23505', message: 'Duplicate key' } 
+            })
+        })
+    })
+};
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Exportar Supabase real ou mock
+export const supabase = (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://temp.supabase.co') 
+    ? mockSupabase 
+    : createClient(supabaseUrl, supabaseKey);
 
 // Função para verificar se a tabela de usuários existe
 export async function checkAuthTable() {

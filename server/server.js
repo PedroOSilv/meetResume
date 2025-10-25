@@ -42,6 +42,18 @@ console.log("🔍 Verificando configurações...");
 console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
 console.log(`🔑 OPENAI_API_KEY configurada: ${OPENAI_API_KEY ? 'Sim' : 'Não'}`);
 console.log(`🔑 OPENAI_API_KEY (primeiros 10 chars): ${OPENAI_API_KEY ? OPENAI_API_KEY.substring(0, 10) + '...' : 'Não configurada'}`);
+console.log(`🔑 OPENAI_API_KEY (últimos 10 chars): ${OPENAI_API_KEY ? '...' + OPENAI_API_KEY.substring(OPENAI_API_KEY.length - 10) : 'Não configurada'}`);
+console.log(`🔑 OPENAI_API_KEY (tamanho): ${OPENAI_API_KEY ? OPENAI_API_KEY.length : 0} caracteres`);
+console.log(`🔑 OPENAI_API_KEY (formato correto): ${OPENAI_API_KEY ? (OPENAI_API_KEY.startsWith('sk-') ? 'Sim' : 'Não') : 'Não configurada'}`);
+
+// Diagnóstico de variáveis de ambiente do Vercel
+console.log("🌐 Diagnóstico de ambiente Vercel:");
+console.log(`   - VERCEL: ${process.env.VERCEL ? 'Sim' : 'Não'}`);
+console.log(`   - VERCEL_ENV: ${process.env.VERCEL_ENV || 'não definido'}`);
+console.log(`   - VERCEL_REGION: ${process.env.VERCEL_REGION || 'não definido'}`);
+console.log(`   - VERCEL_URL: ${process.env.VERCEL_URL || 'não definido'}`);
+console.log(`   - PORT: ${process.env.PORT || 'não definido'}`);
+console.log(`   - HOST: ${process.env.HOST || 'não definido'}`);
 
 if (!OPENAI_API_KEY) {
     console.error("❌ ERRO: OPENAI_API_KEY não está configurada");
@@ -320,6 +332,56 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 // Verificar conectividade primeiro
                 console.log("🔍 Verificando conectividade com OpenAI...");
                 
+                // Diagnóstico de rede e ambiente
+                console.log("🌍 Diagnóstico de ambiente:");
+                console.log(`   - NODE_ENV: ${process.env.NODE_ENV}`);
+                console.log(`   - PLATFORM: ${process.platform}`);
+                console.log(`   - NODE_VERSION: ${process.version}`);
+                console.log(`   - MEMORY: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+                console.log(`   - UPTIME: ${Math.round(process.uptime())}s`);
+                
+                // Teste de conectividade básica
+                try {
+                    const https = await import('https');
+                    console.log("🔗 Testando conectividade básica com OpenAI...");
+                    
+                    const testConnectivity = () => {
+                        return new Promise((resolve, reject) => {
+                            const req = https.request({
+                                hostname: 'api.openai.com',
+                                port: 443,
+                                path: '/v1/models',
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                                    'User-Agent': 'AudioAI/1.0'
+                                },
+                                timeout: 10000
+                            }, (res) => {
+                                console.log(`✅ Conectividade básica OK - Status: ${res.statusCode}`);
+                                resolve(res.statusCode);
+                            });
+                            
+                            req.on('error', (err) => {
+                                console.error(`❌ Erro de conectividade básica:`, err.message);
+                                reject(err);
+                            });
+                            
+                            req.on('timeout', () => {
+                                console.error(`❌ Timeout na conectividade básica`);
+                                req.destroy();
+                                reject(new Error('Timeout'));
+                            });
+                            
+                            req.end();
+                        });
+                    };
+                    
+                    await testConnectivity();
+                } catch (connectivityError) {
+                    console.error("❌ Falha no teste de conectividade:", connectivityError.message);
+                }
+                
                 // Função de retry para OpenAI
                 const retryOpenAI = async (operation, maxRetries = 3) => {
                     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -328,6 +390,19 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                             return await operation();
                         } catch (error) {
                             console.error(`❌ Tentativa ${attempt} falhou:`, error.message);
+                            console.error(`❌ Tipo do erro:`, typeof error);
+                            console.error(`❌ Nome do erro:`, error.name);
+                            console.error(`❌ Código do erro:`, error.code);
+                            console.error(`❌ Causa do erro:`, error.cause);
+                            console.error(`❌ Stack trace:`, error.stack);
+                            
+                            // Diagnóstico específico do erro
+                            if (error.message.includes('Connection error')) {
+                                console.error(`🔍 DIAGNÓSTICO: Erro de conexão detectado`);
+                                console.error(`   - Possível causa: DNS, firewall, ou proxy`);
+                                console.error(`   - Ambiente: ${process.env.NODE_ENV}`);
+                                console.error(`   - Plataforma: ${process.platform}`);
+                            }
                             
                             if (attempt === maxRetries) {
                                 throw error;
@@ -341,8 +416,21 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                     }
                 };
                 
+                // Teste de configuração da OpenAI antes de usar
+                console.log("🔧 Testando configuração da OpenAI...");
+                try {
+                    const testResponse = await openai.models.list();
+                    console.log(`✅ OpenAI configurada corretamente - ${testResponse.data.length} modelos disponíveis`);
+                } catch (configError) {
+                    console.error("❌ Erro na configuração da OpenAI:", configError.message);
+                    console.error("❌ Detalhes do erro de configuração:", JSON.stringify(configError, null, 2));
+                }
+                
                 // Transcrever áudio usando OpenAI Whisper com retry
                 const transcriptionResponse = await retryOpenAI(async () => {
+                    console.log("🎤 Iniciando transcrição com Whisper...");
+                    console.log(`📁 Arquivo: ${audioFile.path} (${audioFile.size} bytes)`);
+                    
                     return await openai.audio.transcriptions.create({
                         file: fs.createReadStream(audioFile.path),
                         model: "whisper-1",

@@ -36,7 +36,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 
 // Verificar se a chave da OpenAI está configurada
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
+let OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
+
+// Corrigir chave se contém "Bearer " duplicado
+if (OPENAI_API_KEY.startsWith('Bearer ')) {
+    OPENAI_API_KEY = OPENAI_API_KEY.substring(7); // Remove "Bearer " do início
+    console.log("🔧 Chave OpenAI corrigida - removido 'Bearer ' duplicado");
+}
 
 console.log("🔍 Verificando configurações...");
 console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
@@ -45,6 +51,7 @@ console.log(`🔑 OPENAI_API_KEY (primeiros 10 chars): ${OPENAI_API_KEY ? OPENAI
 console.log(`🔑 OPENAI_API_KEY (últimos 10 chars): ${OPENAI_API_KEY ? '...' + OPENAI_API_KEY.substring(OPENAI_API_KEY.length - 10) : 'Não configurada'}`);
 console.log(`🔑 OPENAI_API_KEY (tamanho): ${OPENAI_API_KEY ? OPENAI_API_KEY.length : 0} caracteres`);
 console.log(`🔑 OPENAI_API_KEY (formato correto): ${OPENAI_API_KEY ? (OPENAI_API_KEY.startsWith('sk-') ? 'Sim' : 'Não') : 'Não configurada'}`);
+console.log(`🔑 OPENAI_API_KEY (contém Bearer): ${OPENAI_API_KEY ? (OPENAI_API_KEY.includes('Bearer ') ? 'Sim' : 'Não') : 'Não configurada'}`);
 
 // Diagnóstico de variáveis de ambiente do Vercel
 console.log("🌐 Diagnóstico de ambiente Vercel:");

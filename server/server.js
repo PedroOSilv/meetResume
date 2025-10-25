@@ -40,7 +40,14 @@ console.log("🔍 Investigando variável de ambiente OPENAI_API_KEY...");
 console.log(`🔍 process.env.OPENAI_API_KEY existe: ${!!process.env.OPENAI_API_KEY}`);
 console.log(`🔍 process.env.OPENAI_API_KEY (primeiros 20 chars): "${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'não definida'}"`);
 
-let OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
+let OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// Verificar se a chave existe
+if (!OPENAI_API_KEY) {
+    console.error("❌ ERRO: OPENAI_API_KEY não está configurada nas variáveis de ambiente");
+    console.error("❌ Configure a variável OPENAI_API_KEY no Vercel ou localmente");
+    process.exit(1);
+}
 
 // Corrigir chave se contém "Bearer " duplicado
 console.log(`🔍 Chave original: "${OPENAI_API_KEY.substring(0, 20)}..."`);
@@ -84,8 +91,10 @@ console.log(`   - VERCEL_URL: ${process.env.VERCEL_URL || 'não definido'}`);
 console.log(`   - PORT: ${process.env.PORT || 'não definido'}`);
 console.log(`   - HOST: ${process.env.HOST || 'não definido'}`);
 
-if (!OPENAI_API_KEY) {
-    console.error("❌ ERRO: OPENAI_API_KEY não está configurada");
+// Verificar JWT_SECRET
+if (!process.env.JWT_SECRET) {
+    console.error("❌ ERRO: JWT_SECRET não está configurada nas variáveis de ambiente");
+    console.error("❌ Configure a variável JWT_SECRET no Vercel ou localmente");
     process.exit(1);
 }
 
@@ -216,7 +225,7 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ message: 'Token de acesso necessário' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'audio_ai_secret_key', (err, user) => {
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) {
             return res.status(403).json({ message: 'Token inválido' });
         }
@@ -254,7 +263,7 @@ app.post("/api/auth/login", async (req, res) => {
                 email: email, 
                 role: 'admin' 
             },
-            process.env.JWT_SECRET || 'audio_ai_secret_key',
+            process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
         

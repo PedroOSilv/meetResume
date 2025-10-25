@@ -12,6 +12,9 @@ package-lock.json
 .env.test.local
 .env.production.local
 .env.example
+.env.vercel
+.env.production
+.env.development
 
 # Logs
 logs

@@ -36,12 +36,34 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 
 // Verificar se a chave da OpenAI está configurada
+console.log("🔍 Investigando variável de ambiente OPENAI_API_KEY...");
+console.log(`🔍 process.env.OPENAI_API_KEY existe: ${!!process.env.OPENAI_API_KEY}`);
+console.log(`🔍 process.env.OPENAI_API_KEY (primeiros 20 chars): "${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'não definida'}"`);
+
 let OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
 
 // Corrigir chave se contém "Bearer " duplicado
-if (OPENAI_API_KEY.startsWith('Bearer ')) {
-    OPENAI_API_KEY = OPENAI_API_KEY.substring(7); // Remove "Bearer " do início
+console.log(`🔍 Chave original: "${OPENAI_API_KEY.substring(0, 20)}..."`);
+console.log(`🔍 Chave contém 'Bearer ': ${OPENAI_API_KEY.includes('Bearer ')}`);
+console.log(`🔍 Chave começa com 'Bearer ': ${OPENAI_API_KEY.startsWith('Bearer ')}`);
+
+if (OPENAI_API_KEY.includes('Bearer ')) {
+    // Remove qualquer ocorrência de "Bearer " da chave
+    OPENAI_API_KEY = OPENAI_API_KEY.replace(/Bearer\s+/gi, '').trim();
     console.log("🔧 Chave OpenAI corrigida - removido 'Bearer ' duplicado");
+    console.log(`🔧 Chave corrigida: "${OPENAI_API_KEY.substring(0, 20)}..."`);
+}
+
+// Validação adicional de caracteres especiais
+console.log(`🔍 Chave contém caracteres especiais: ${/[^\w\-\.]/.test(OPENAI_API_KEY)}`);
+console.log(`🔍 Chave contém quebras de linha: ${OPENAI_API_KEY.includes('\n') || OPENAI_API_KEY.includes('\r')}`);
+console.log(`🔍 Chave contém espaços extras: ${OPENAI_API_KEY !== OPENAI_API_KEY.trim()}`);
+
+// Limpar caracteres especiais se necessário
+if (/[^\w\-\.]/.test(OPENAI_API_KEY)) {
+    console.log("🔧 Limpando caracteres especiais da chave...");
+    OPENAI_API_KEY = OPENAI_API_KEY.replace(/[^\w\-\.]/g, '').trim();
+    console.log(`🔧 Chave limpa: "${OPENAI_API_KEY.substring(0, 20)}..."`);
 }
 
 console.log("🔍 Verificando configurações...");
@@ -422,6 +444,13 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                         }
                     }
                 };
+                
+                // Validação final da chave antes de usar
+                console.log("🔧 Validação final da chave OpenAI...");
+                console.log(`🔑 Chave final: "${OPENAI_API_KEY.substring(0, 15)}..."`);
+                console.log(`🔑 Tamanho: ${OPENAI_API_KEY.length} caracteres`);
+                console.log(`🔑 Formato correto: ${OPENAI_API_KEY.startsWith('sk-') ? 'Sim' : 'Não'}`);
+                console.log(`🔑 Contém Bearer: ${OPENAI_API_KEY.includes('Bearer ') ? 'Sim' : 'Não'}`);
                 
                 // Teste de configuração da OpenAI antes de usar
                 console.log("🔧 Testando configuração da OpenAI...");

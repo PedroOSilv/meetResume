@@ -38,6 +38,11 @@ const PORT = process.env.PORT || 3000;
 // Verificar se a chave da OpenAI está configurada
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
 
+console.log("🔍 Verificando configurações...");
+console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
+console.log(`🔑 OPENAI_API_KEY configurada: ${OPENAI_API_KEY ? 'Sim' : 'Não'}`);
+console.log(`🔑 OPENAI_API_KEY (primeiros 10 chars): ${OPENAI_API_KEY ? OPENAI_API_KEY.substring(0, 10) + '...' : 'Não configurada'}`);
+
 if (!OPENAI_API_KEY) {
     console.error("❌ ERRO: OPENAI_API_KEY não está configurada");
     process.exit(1);
@@ -291,6 +296,9 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
 
         const audioFile = req.file;
         console.log(`📁 Arquivo recebido: ${audioFile.filename} (${audioFile.size} bytes)`);
+        console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'desenvolvimento'}`);
+        console.log(`🔑 OpenAI API Key configurada: ${process.env.OPENAI_API_KEY ? 'Sim' : 'Não'}`);
+        console.log(`🔑 OpenAI API Key (primeiros 10 chars): ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 10) + '...' : 'Não configurada'}`);
 
         // Verificar se arquivo não está vazio
         if (audioFile.size === 0) {
@@ -347,14 +355,21 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 console.error("❌ Erro completo:", JSON.stringify(openaiError, null, 2));
                 console.error("❌ Status:", openaiError.status);
                 console.error("❌ Code:", openaiError.code);
+                console.error("❌ Tipo do erro:", typeof openaiError);
+                console.error("❌ Stack trace:", openaiError.stack);
                 
                 // Fallback: transcrição simulada
                 transcription = "Transcrição não disponível - erro de conexão com OpenAI";
+                
+                // Calcular duração estimada mais precisa (assumindo ~16kbps para WebM)
+                const estimatedDuration = Math.round(audioFile.size / 2000); // Mais preciso para WebM
+                
                 analysis = `## Resumo da Gravação (Modo Fallback)
 
 **Status:** Erro de conexão com OpenAI
 **Tamanho do arquivo:** ${audioFile.size} bytes
-**Duração estimada:** ${Math.round(audioFile.size / 1000)} segundos
+**Duração estimada:** ${estimatedDuration} segundos
+**Ambiente:** ${process.env.NODE_ENV || 'desenvolvimento'}
 
 **Análise:**
 - ⚠️ Não foi possível processar com IA devido a problemas de conectividade

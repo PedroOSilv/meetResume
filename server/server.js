@@ -51,8 +51,9 @@ if (!OPENAI_API_KEY) {
 // Inicializar OpenAI
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY,
-    timeout: 30000, // 30 segundos
-    maxRetries: 3
+    timeout: 60000, // 60 segundos (aumentado para Vercel)
+    maxRetries: 0, // Desabilitar retry automático (usamos nosso próprio)
+    dangerouslyAllowBrowser: false // Segurança adicional
 });
 
 // Função para carregar prompt do arquivo .md
@@ -319,11 +320,34 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 // Verificar conectividade primeiro
                 console.log("🔍 Verificando conectividade com OpenAI...");
                 
-                // Transcrever áudio usando OpenAI Whisper
-                const transcriptionResponse = await openai.audio.transcriptions.create({
-                    file: fs.createReadStream(audioFile.path),
-                    model: "whisper-1",
-                    language: "pt"
+                // Função de retry para OpenAI
+                const retryOpenAI = async (operation, maxRetries = 3) => {
+                    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                        try {
+                            console.log(`🔄 Tentativa ${attempt}/${maxRetries} de conexão com OpenAI...`);
+                            return await operation();
+                        } catch (error) {
+                            console.error(`❌ Tentativa ${attempt} falhou:`, error.message);
+                            
+                            if (attempt === maxRetries) {
+                                throw error;
+                            }
+                            
+                            // Aguardar antes da próxima tentativa
+                            const delay = attempt * 2000; // 2s, 4s, 6s
+                            console.log(`⏳ Aguardando ${delay}ms antes da próxima tentativa...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                        }
+                    }
+                };
+                
+                // Transcrever áudio usando OpenAI Whisper com retry
+                const transcriptionResponse = await retryOpenAI(async () => {
+                    return await openai.audio.transcriptions.create({
+                        file: fs.createReadStream(audioFile.path),
+                        model: "whisper-1",
+                        language: "pt"
+                    });
                 });
                 
                 transcription = transcriptionResponse.text;
@@ -331,21 +355,23 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
 
                 console.log("🤖 Processando com ChatGPT...");
                 
-                // Processar transcrição com ChatGPT
-                const chatResponse = await openai.chat.completions.create({
-                    model: "gpt-4o-mini",
-                    messages: [
-                        {
-                            role: "system",
-                            content: CHATGPT_PROMPT
-                        },
-                        {
-                            role: "user",
-                            content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
-                        }
-                    ],
-                    max_tokens: 1000,
-                    temperature: 0.7
+                // Processar transcrição com ChatGPT com retry
+                const chatResponse = await retryOpenAI(async () => {
+                    return await openai.chat.completions.create({
+                        model: "gpt-4o-mini",
+                        messages: [
+                            {
+                                role: "system",
+                                content: CHATGPT_PROMPT
+                            },
+                            {
+                                role: "user",
+                                content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
+                            }
+                        ],
+                        max_tokens: 1000,
+                        temperature: 0.7
+                    });
                 });
                 
                 analysis = chatResponse.choices[0].message.content;
@@ -358,30 +384,63 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 console.error("❌ Tipo do erro:", typeof openaiError);
                 console.error("❌ Stack trace:", openaiError.stack);
                 
+                // Determinar tipo de erro para fallback mais específico
+                const isConnectionError = openaiError.message.includes('Connection error') || 
+                                       openaiError.message.includes('ECONNREFUSED') ||
+                                       openaiError.message.includes('timeout');
+                
+                const isRateLimitError = openaiError.message.includes('rate limit') ||
+                                       openaiError.message.includes('quota');
+                
                 // Fallback: transcrição simulada
                 transcription = "Transcrição não disponível - erro de conexão com OpenAI";
                 
                 // Calcular duração estimada mais precisa (assumindo ~16kbps para WebM)
                 const estimatedDuration = Math.round(audioFile.size / 2000); // Mais preciso para WebM
                 
+                let errorType = "Erro de conexão";
+                let errorMessage = "Problemas de conectividade com a OpenAI";
+                let suggestions = [
+                    "Verifique sua conexão com a internet",
+                    "Tente novamente em alguns minutos",
+                    "Entre em contato com o suporte se o problema persistir"
+                ];
+                
+                if (isConnectionError) {
+                    errorType = "Erro de conexão";
+                    errorMessage = "Não foi possível conectar com a OpenAI";
+                    suggestions = [
+                        "Verifique sua conexão com a internet",
+                        "Aguarde alguns minutos e tente novamente",
+                        "O servidor pode estar temporariamente indisponível"
+                    ];
+                } else if (isRateLimitError) {
+                    errorType = "Limite de taxa";
+                    errorMessage = "Limite de requisições da OpenAI atingido";
+                    suggestions = [
+                        "Aguarde alguns minutos antes de tentar novamente",
+                        "Tente com um arquivo menor",
+                        "Entre em contato com o suporte"
+                    ];
+                }
+                
                 analysis = `## Resumo da Gravação (Modo Fallback)
 
-**Status:** Erro de conexão com OpenAI
+**Status:** ${errorType}
 **Tamanho do arquivo:** ${audioFile.size} bytes
 **Duração estimada:** ${estimatedDuration} segundos
 **Ambiente:** ${process.env.NODE_ENV || 'desenvolvimento'}
+**Erro:** ${errorMessage}
 
 **Análise:**
-- ⚠️ Não foi possível processar com IA devido a problemas de conectividade
-- 📊 Arquivo de áudio recebido com sucesso
-- 🔄 Tente novamente em alguns minutos
+- ⚠️ Não foi possível processar com IA devido a: ${errorMessage}
+- 📊 Arquivo de áudio recebido com sucesso (${audioFile.size} bytes)
+- 🔄 Sistema de retry ativado mas falhou após 3 tentativas
 
 **Próximos passos:**
-1. Verifique sua conexão com a internet
-2. Tente novamente com um arquivo menor
-3. Entre em contato com o suporte se o problema persistir
+${suggestions.map((suggestion, index) => `${index + 1}. ${suggestion}`).join('\n')}
 
-**Nota:** Esta é uma resposta de fallback devido a problemas de conectividade com a OpenAI.`;
+**Nota:** Esta é uma resposta de fallback devido a problemas de conectividade com a OpenAI. O sistema tentou reconectar automaticamente mas não foi possível estabelecer conexão.`;
             }
             
             // Limpar arquivo temporário

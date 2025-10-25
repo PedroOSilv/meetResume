@@ -311,15 +311,15 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage: storage,
     limits: {
-        fileSize: 25 * 1024 * 1024 // 25MB limite
+        fileSize: 10 * 1024 * 1024 // 10MB limite (otimizado)
     },
     fileFilter: (req, file, cb) => {
-        // Aceitar apenas arquivos de áudio
-        const allowedTypes = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/webm'];
-        if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(wav|mp3|mp4|webm)$/i)) {
+        // Aceitar apenas arquivos de áudio otimizados
+        const allowedTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
+        if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(webm|ogg|mp4|wav)$/i)) {
             cb(null, true);
         } else {
-            cb(new Error('Tipo de arquivo não suportado. Use WAV, MP3, MP4 ou WebM.'));
+            cb(new Error('Tipo de arquivo não suportado. Use WebM, OGG, MP4 ou WAV (formatos otimizados).'));
         }
     }
 });
@@ -347,6 +347,8 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
 
         const audioFile = req.file;
         console.log(`📁 Arquivo recebido: ${audioFile.filename} (${audioFile.size} bytes)`);
+        console.log(`📊 Tamanho em MB: ${(audioFile.size / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`📊 Tamanho em KB: ${(audioFile.size / 1024).toFixed(1)} KB`);
         console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'desenvolvimento'}`);
         console.log(`🔑 OpenAI API Key configurada: ${process.env.OPENAI_API_KEY ? 'Sim' : 'Não'}`);
         console.log(`🔑 OpenAI API Key (primeiros 10 chars): ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 10) + '...' : 'Não configurada'}`);

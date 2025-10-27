@@ -280,7 +280,7 @@ app.use((req, res, next) => {
 // No Vercel, o servidor roda da raiz do projeto, não do diretório server/
 const webClientPath = process.env.NODE_ENV === 'production' 
     ? path.join(process.cwd(), 'web-client')
-    : path.join(process.cwd(), '..', 'web-client');
+    : path.join(process.cwd(), 'web-client');
 app.use(express.static(webClientPath));
 
 // Middleware de autenticação
@@ -303,7 +303,21 @@ const authenticateToken = (req, res, next) => {
 
 // Rota raiz para servir o cliente web
 app.get("/", (req, res) => {
-    res.sendFile(path.join(webClientPath, 'index.html'));
+    console.log('🌐 Requisição para rota raiz');
+    console.log('📁 webClientPath:', webClientPath);
+    console.log('📄 Tentando servir:', path.join(webClientPath, 'index.html'));
+    
+    const indexPath = path.join(webClientPath, 'index.html');
+    console.log('✅ Arquivo existe?', require('fs').existsSync(indexPath));
+    
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            console.error('❌ Erro ao servir index.html:', err);
+            res.status(500).json({ error: 'Erro ao carregar página principal', details: err.message });
+        } else {
+            console.log('✅ index.html servido com sucesso');
+        }
+    });
 });
 
 // Rota de login

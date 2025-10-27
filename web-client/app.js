@@ -44,6 +44,8 @@ class AudioAIClient {
         // Configurações
         this.recordMode = 'microphone';
         this.mixRatio = 0.7; // 70% sistema, 30% microfone
+        this.micGain = null;
+        this.systemGain = null;
 
         // Estado da chamada
         this.segments = 0;
@@ -90,6 +92,17 @@ class AudioAIClient {
                 systemInstructions.style.display = 'block';
             } else {
                 systemInstructions.style.display = 'none';
+            }
+        }
+        
+        // Mostrar/ocultar controles de mixagem
+        const mixingControls = document.getElementById('mixingControls');
+        if (mixingControls) {
+            if (this.recordMode === 'both') {
+                mixingControls.style.display = 'block';
+                this.setupMixingControls();
+            } else {
+                mixingControls.style.display = 'none';
             }
         }
     }
@@ -362,28 +375,36 @@ class AudioAIClient {
             // Criar contexto de áudio para mixagem
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
+            console.log('🎵 Criando contexto de áudio para mixagem...');
+            
             // Criar nós de fonte para cada stream
             const micSource = this.audioContext.createMediaStreamSource(this.micStream);
             const systemSource = this.audioContext.createMediaStreamSource(
                 new MediaStream(systemAudioTracks)
             );
             
-            // Criar nós de ganho para controlar o volume de cada fonte
-            const micGain = this.audioContext.createGain();
-            const systemGain = this.audioContext.createGain();
+            console.log('🎤 Fontes de áudio criadas - Microfone e Sistema');
             
-            // Aplicar mixagem
-            micGain.gain.value = 1 - this.mixRatio; // 30% por padrão
-            systemGain.gain.value = this.mixRatio;   // 70% por padrão
+            // Criar nós de ganho para controlar o volume de cada fonte
+            this.micGain = this.audioContext.createGain();
+            this.systemGain = this.audioContext.createGain();
+            
+            // Aplicar mixagem - ambos os canais ativos simultaneamente
+            this.micGain.gain.value = 1 - this.mixRatio; // 30% por padrão
+            this.systemGain.gain.value = this.mixRatio;   // 70% por padrão
+            
+            console.log(`🎚️ Mixagem configurada - Microfone: ${(1-this.mixRatio)*100}%, Sistema: ${this.mixRatio*100}%`);
             
             // Criar destino para mixagem
             const destination = this.audioContext.createMediaStreamDestination();
             
-            // Conectar tudo
-            micSource.connect(micGain);
-            systemSource.connect(systemGain);
-            micGain.connect(destination);
-            systemGain.connect(destination);
+            // Conectar tudo - AMBOS os canais conectados simultaneamente
+            micSource.connect(this.micGain);
+            systemSource.connect(this.systemGain);
+            this.micGain.connect(destination);
+            this.systemGain.connect(destination);
+            
+            console.log('🔗 Conexões de áudio estabelecidas - Mixagem ativa');
             
             this.mixedStream = destination.stream;
             
@@ -540,6 +561,10 @@ class AudioAIClient {
             this.audioContext.close();
             this.audioContext = null;
         }
+        
+        // Limpar referências de ganho
+        this.micGain = null;
+        this.systemGain = null;
     }
 
     async processRecording() {
@@ -1080,6 +1105,40 @@ class AudioAIClient {
         this.resetUI();
         
         console.log(`🎯 Gravação finalizada: ${this.chunkIndex} chunks processados`);
+    }
+
+    // Função para ajustar mixagem em tempo real
+    adjustMixRatio(newRatio) {
+        if (this.micGain && this.systemGain) {
+            this.mixRatio = Math.max(0, Math.min(1, newRatio)); // Clamp entre 0 e 1
+            this.micGain.gain.value = 1 - this.mixRatio;
+            this.systemGain.gain.value = this.mixRatio;
+            console.log(`🎚️ Mixagem ajustada - Microfone: ${(1-this.mixRatio)*100}%, Sistema: ${this.mixRatio*100}%`);
+        }
+    }
+
+    // Configurar controles de mixagem
+    setupMixingControls() {
+        const mixSlider = document.getElementById('mixSlider');
+        const systemVolume = document.getElementById('systemVolume');
+        const micVolume = document.getElementById('micVolume');
+        
+        if (mixSlider && systemVolume && micVolume) {
+            // Configurar valor inicial
+            mixSlider.value = this.mixRatio * 100;
+            systemVolume.textContent = Math.round(this.mixRatio * 100);
+            micVolume.textContent = Math.round((1 - this.mixRatio) * 100);
+            
+            // Adicionar listener para mudanças
+            mixSlider.addEventListener('input', (e) => {
+                const newRatio = e.target.value / 100;
+                this.adjustMixRatio(newRatio);
+                
+                // Atualizar labels
+                systemVolume.textContent = Math.round(this.mixRatio * 100);
+                micVolume.textContent = Math.round((1 - this.mixRatio) * 100);
+            });
+        }
     }
 }
 

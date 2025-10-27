@@ -78,9 +78,20 @@ class AudioAIClient {
 
     onModeChanged() {
         this.recordMode = this.recordModeSelect.value;
+        console.log('Modo de gravação alterado para:', this.recordMode);
         
         // Atualizar status da chamada
         this.updateCallStatus(`Modo: ${this.recordMode}`);
+        
+        // Mostrar/ocultar instruções para gravação do sistema
+        const systemInstructions = document.getElementById('systemInstructions');
+        if (systemInstructions) {
+            if (this.recordMode === 'system' || this.recordMode === 'both') {
+                systemInstructions.style.display = 'block';
+            } else {
+                systemInstructions.style.display = 'none';
+            }
+        }
     }
 
     startTimer() {
@@ -200,46 +211,87 @@ class AudioAIClient {
 
     async startSystemRecording() {
         try {
+            console.log('🎯 Iniciando captura de áudio do sistema...');
+            
             // No navegador, capturamos áudio de uma tab usando getDisplayMedia
             // IMPORTANTE: O usuário DEVE marcar "Compartilhar áudio da aba" na janela de seleção
             this.systemStream = await navigator.mediaDevices.getDisplayMedia({ 
-                audio: true,  // Simplificado - o navegador decide as melhores configurações
-                video: true   // Precisamos de vídeo para o Chrome aceitar, mas não usaremos
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                },
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
             });
             
-            // Criar um stream apenas com o áudio
-            const audioTracks = this.systemStream.getAudioTracks();
+            console.log('✅ Stream do sistema obtido:', this.systemStream);
             
-            // Parar as tracks de vídeo imediatamente (não precisamos delas)
+            // Verificar se temos tracks de áudio
+            const audioTracks = this.systemStream.getAudioTracks();
             const videoTracks = this.systemStream.getVideoTracks();
-            videoTracks.forEach(track => track.stop());
+            
+            console.log(`📊 Tracks encontradas - Áudio: ${audioTracks.length}, Vídeo: ${videoTracks.length}`);
             
             if (audioTracks.length === 0) {
-                throw new Error('Nenhuma faixa de áudio disponível. Certifique-se de marcar "Compartilhar áudio da aba" na janela de seleção.');
+                // Limpar recursos antes de lançar erro
+                this.systemStream.getTracks().forEach(track => track.stop());
+                this.systemStream = null;
+                throw new Error('❌ Nenhuma faixa de áudio disponível. Certifique-se de marcar "Compartilhar áudio da aba" na janela de seleção.');
             }
 
+            // Criar stream apenas com áudio
             const audioOnlyStream = new MediaStream(audioTracks);
+            
+            // Parar tracks de vídeo após um pequeno delay para evitar problemas
+            setTimeout(() => {
+                videoTracks.forEach(track => {
+                    console.log('🛑 Parando track de vídeo:', track.label);
+                    track.stop();
+                });
+            }, 100);
+            
+            console.log('🎵 Criando MediaRecorder com stream de áudio...');
             
             this.mediaRecorder = new MediaRecorder(audioOnlyStream, {
                 mimeType: this.getBestMimeType()
             });
             
+            console.log('✅ MediaRecorder criado:', this.mediaRecorder.mimeType);
+            
             this.setupMediaRecorder();
             this.mediaRecorder.start();
             
+            console.log('🚀 Gravação do sistema iniciada com sucesso!');
+            
         } catch (error) {
-            if (error.name === 'NotAllowedError') {
-                throw new Error('Permissão negada. Por favor, permita o compartilhamento e marque "Compartilhar áudio da aba".');
-            } else if (error.name === 'NotSupportedError') {
-                throw new Error('Seu navegador não suporta captura de áudio de abas. Use Chrome ou Edge mais recente.');
+            console.error('❌ Erro na gravação do sistema:', error);
+            
+            // Limpar recursos em caso de erro
+            if (this.systemStream) {
+                this.systemStream.getTracks().forEach(track => track.stop());
+                this.systemStream = null;
             }
-            throw new Error(`Não foi possível capturar áudio do sistema: ${error.message}`);
+            
+            if (error.name === 'NotAllowedError') {
+                throw new Error('❌ Permissão negada. Por favor, permita o compartilhamento e marque "Compartilhar áudio da aba".');
+            } else if (error.name === 'NotSupportedError') {
+                throw new Error('❌ Seu navegador não suporta captura de áudio de abas. Use Chrome ou Edge mais recente.');
+            } else if (error.name === 'AbortError') {
+                throw new Error('❌ Captura cancelada pelo usuário.');
+            }
+            throw new Error(`❌ Não foi possível capturar áudio do sistema: ${error.message}`);
         }
     }
 
     async startMixedRecording() {
         try {
+            console.log('🎯 Iniciando gravação mista (microfone + sistema)...');
+            
             // Obter stream do microfone primeiro
+            console.log('🎤 Obtendo stream do microfone...');
             this.micStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     echoCancellation: true,
@@ -247,35 +299,64 @@ class AudioAIClient {
                     autoGainControl: true
                 }
             }).catch(err => {
+                console.error('❌ Erro ao acessar microfone:', err);
                 throw new Error('Não foi possível acessar o microfone: ' + err.message);
             });
             
+            console.log('✅ Microfone obtido com sucesso');
+            
             // Obter stream do sistema
             // IMPORTANTE: O usuário DEVE marcar "Compartilhar áudio da aba"
+            console.log('🖥️ Obtendo stream do sistema...');
             this.systemStream = await navigator.mediaDevices.getDisplayMedia({ 
-                audio: true,
-                video: true  // Necessário para alguns navegadores
-            }).catch(err => {
-                // Se falhar, parar o stream do microfone
-                this.micStream.getTracks().forEach(track => track.stop());
-                this.micStream = null;
-                if (err.name === 'NotAllowedError') {
-                    throw new Error('Permissão negada para captura de tela/aba.');
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                },
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 }
-                throw new Error('Não foi possível capturar áudio do sistema: ' + err.message);
+            }).catch(err => {
+                console.error('❌ Erro ao capturar sistema:', err);
+                // Se falhar, parar o stream do microfone
+                if (this.micStream) {
+                    this.micStream.getTracks().forEach(track => track.stop());
+                    this.micStream = null;
+                }
+                if (err.name === 'NotAllowedError') {
+                    throw new Error('❌ Permissão negada para captura de tela/aba.');
+                }
+                throw new Error('❌ Não foi possível capturar áudio do sistema: ' + err.message);
             });
 
-            // Parar vídeo (não precisamos)
+            console.log('✅ Stream do sistema obtido');
+
+            // Parar vídeo após um delay para evitar problemas
             const videoTracks = this.systemStream.getVideoTracks();
-            videoTracks.forEach(track => track.stop());
+            setTimeout(() => {
+                videoTracks.forEach(track => {
+                    console.log('🛑 Parando track de vídeo:', track.label);
+                    track.stop();
+                });
+            }, 100);
 
             // Verificar se tem áudio do sistema
             const systemAudioTracks = this.systemStream.getAudioTracks();
+            console.log(`📊 Tracks de áudio do sistema: ${systemAudioTracks.length}`);
+            
             if (systemAudioTracks.length === 0) {
                 // Limpar recursos
-                this.micStream.getTracks().forEach(track => track.stop());
-                this.systemStream.getTracks().forEach(track => track.stop());
-                throw new Error('Nenhuma faixa de áudio do sistema disponível. Certifique-se de marcar "Compartilhar áudio da aba".');
+                if (this.micStream) {
+                    this.micStream.getTracks().forEach(track => track.stop());
+                    this.micStream = null;
+                }
+                if (this.systemStream) {
+                    this.systemStream.getTracks().forEach(track => track.stop());
+                    this.systemStream = null;
+                }
+                throw new Error('❌ Nenhuma faixa de áudio do sistema disponível. Certifique-se de marcar "Compartilhar áudio da aba".');
             }
 
             // Criar contexto de áudio para mixagem

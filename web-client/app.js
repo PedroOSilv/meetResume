@@ -127,20 +127,20 @@ class AudioAIClient {
 
     async startMicrophoneRecording() {
         try {
-            this.micStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                } 
-            });
+            // Usar configurações otimizadas
+            this.micStream = await navigator.mediaDevices.getUserMedia(
+                this.getOptimizedAudioConstraints()
+            );
             
+            // Configurar MediaRecorder com otimizações
+            const mimeType = this.getBestMimeType();
             this.mediaRecorder = new MediaRecorder(this.micStream, {
-                mimeType: this.getBestMimeType()
+                mimeType: mimeType,
+                audioBitsPerSecond: 32000  // 32kbps - otimizado para fala
             });
             
             this.setupMediaRecorder();
-            this.mediaRecorder.start();
+            this.mediaRecorder.start(1000); // Chunks de 1 segundo para melhor performance
             
         } catch (error) {
             console.error('Erro ao acessar microfone:', error);
@@ -319,23 +319,38 @@ class AudioAIClient {
     }
 
     getBestMimeType() {
-        // Tentar encontrar o melhor formato suportado
+        // Tentar encontrar o melhor formato suportado (otimizado para performance)
         const types = [
-            'audio/webm;codecs=opus',
-            'audio/webm',
-            'audio/ogg;codecs=opus',
-            'audio/mp4'
+            'audio/webm;codecs=opus',  // Melhor compressão
+            'audio/ogg;codecs=opus',   // Boa compressão
+            'audio/webm',              // Fallback WebM
+            'audio/mp4'                // Último recurso
         ];
         
         for (const type of types) {
             if (MediaRecorder.isTypeSupported(type)) {
-                console.log('Usando formato:', type);
+                console.log('🎵 Usando formato otimizado:', type);
                 return type;
             }
         }
         
         // Fallback para o padrão do navegador
+        console.log('⚠️ Usando formato padrão do navegador');
         return '';
+    }
+
+    getOptimizedAudioConstraints() {
+        // Configurações otimizadas para áudio
+        return {
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 16000,        // Reduzido de 44.1kHz para 16kHz
+                channelCount: 1,          // Mono em vez de estéreo
+                sampleSize: 16            // 16-bit em vez de 32-bit
+            }
+        };
     }
 
     setupMediaRecorder() {
@@ -408,7 +423,21 @@ class AudioAIClient {
                 throw new Error('Gravação vazia. Nenhum áudio foi capturado.');
             }
 
-            console.log('Tamanho do áudio:', audioBlob.size, 'bytes');
+            console.log('📊 Tamanho do áudio:', audioBlob.size, 'bytes');
+            console.log('📊 Tamanho em MB:', (audioBlob.size / 1024 / 1024).toFixed(2), 'MB');
+            
+            // Validação de tamanho (limite de 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (audioBlob.size > maxSize) {
+                throw new Error(`Arquivo muito grande: ${(audioBlob.size / 1024 / 1024).toFixed(2)}MB. Limite: 10MB. Tente gravar por menos tempo.`);
+            }
+            
+            // Mostrar informações de otimização
+            const duration = this.getRecordingDuration();
+            if (duration > 0) {
+                const bitrate = (audioBlob.size * 8) / duration; // bits por segundo
+                console.log(`📊 Duração: ${duration}s, Bitrate: ${(bitrate / 1000).toFixed(1)}kbps`);
+            }
 
             // Criar FormData para upload
             const formData = new FormData();
@@ -528,10 +557,28 @@ class AudioAIClient {
     }
 
     formatResumeText(text) {
-        // Formato simples como chat do Cursor
+        // Processar markdown básico
         let formatted = text;
         
-        // Converter quebras de linha para HTML
+        // Converter **texto** para <strong>texto</strong>
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Converter *texto* para <em>texto</em>
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        
+        // Converter ## Título para <h3>Título</h3>
+        formatted = formatted.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+        
+        // Converter ### Título para <h4>Título</h4>
+        formatted = formatted.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        
+        // Converter listas numeradas (1. item)
+        formatted = formatted.replace(/^(\d+)\. (.+)$/gm, '<div class="list-item"><span class="list-number">$1.</span> $2</div>');
+        
+        // Converter listas com bullet (- item)
+        formatted = formatted.replace(/^- (.+)$/gm, '<div class="list-item"><span class="list-bullet">•</span> $1</div>');
+        
+        // Converter quebras de linha para <br>
         formatted = formatted.replace(/\n/g, '<br>');
         
         return formatted;
@@ -638,6 +685,11 @@ class AudioAIClient {
             console.error('Erro ao copiar:', error);
             alert('Não foi possível copiar o texto. Tente manualmente.');
         }
+    }
+
+    getRecordingDuration() {
+        if (!this.recordingStartTime) return 0;
+        return Math.floor((Date.now() - this.recordingStartTime) / 1000);
     }
 }
 

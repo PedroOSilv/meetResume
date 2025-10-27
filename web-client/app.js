@@ -476,6 +476,8 @@ class AudioAIClient {
         this.updateCallStatus('Parando gravação...');
         this.stopBtn.disabled = true;
 
+        try {
+
         // Parar timer de chunks
         if (this.chunkInterval) {
             clearInterval(this.chunkInterval);
@@ -509,6 +511,16 @@ class AudioAIClient {
 
         // Parar todos os streams
         this.stopAllStreams();
+        
+        // Resetar UI para permitir novo ciclo
+        this.resetUI();
+        
+        } catch (error) {
+            console.error('Erro ao parar gravação:', error);
+            this.showError(`Erro ao parar gravação: ${error.message}`);
+            // Garantir que a UI seja resetada mesmo em caso de erro
+            this.resetUI();
+        }
     }
 
     stopAllStreams() {
@@ -1063,6 +1075,9 @@ class AudioAIClient {
         
         // Atualizar status
         this.updateCallStatus('Processamento concluído');
+        
+        // Resetar UI para permitir novo ciclo
+        this.resetUI();
         
         console.log(`🎯 Gravação finalizada: ${this.chunkIndex} chunks processados`);
     }

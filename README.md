@@ -203,4 +203,4 @@ Para atualizar a aplicação:
 
 ---
 
-**Desenvolvido para macOS com compatibilidade universal Intel/Apple Silicon** 🍎
+**Desenvolvido para macOS com compatibilidade universal Intel/Apple Silicon** 🍎# Deploy automático configurado

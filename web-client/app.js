@@ -33,6 +33,14 @@ class AudioAIClient {
         this.recordingStartTime = null;
         this.timerInterval = null;
 
+        // Sistema de chunks em tempo real
+        this.sessionId = null;
+        this.chunkInterval = null;
+        this.chunkIndex = 0;
+        this.pendingUploads = new Set();
+        this.accumulatedTranscript = '';
+        this.isStopping = false;
+
         // Configurações
         this.recordMode = 'microphone';
         this.mixRatio = 0.7; // 70% sistema, 30% microfone
@@ -95,6 +103,11 @@ class AudioAIClient {
     async startRecording() {
         try {
             this.audioChunks = [];
+            this.sessionId = this.generateSessionId();
+            this.chunkIndex = 0;
+            this.pendingUploads.clear();
+            this.accumulatedTranscript = '';
+            this.isStopping = false;
             
             // Solicitar permissões e iniciar streams baseado no modo
             if (this.recordMode === 'microphone') {
@@ -113,6 +126,9 @@ class AudioAIClient {
 
             // Iniciar timer
             this.startTimer();
+
+            // Iniciar sistema de chunks
+            this.startChunkSystem();
 
             // Atualizar status
             this.updateCallStatus('Gravando...');
@@ -360,9 +376,8 @@ class AudioAIClient {
             }
         });
 
-        this.mediaRecorder.addEventListener('stop', () => {
-            this.processRecording();
-        });
+        // Remover o listener antigo que parava a gravação
+        // O novo sistema de chunks gerencia o evento 'stop' diretamente
 
         this.mediaRecorder.addEventListener('error', (error) => {
             console.error('Erro no MediaRecorder:', error);
@@ -371,21 +386,45 @@ class AudioAIClient {
         });
     }
 
-    stopRecording() {
+    async stopRecording() {
         if (!this.isRecording || !this.mediaRecorder) {
             return;
         }
 
+        this.isStopping = true;
         this.updateCallStatus('Parando gravação...');
         this.stopBtn.disabled = true;
 
-        // Parar timer
+        // Parar timer de chunks
+        if (this.chunkInterval) {
+            clearInterval(this.chunkInterval);
+            this.chunkInterval = null;
+        }
+
+        // Parar timer principal
         this.stopTimer();
 
-        // Parar o MediaRecorder
-        if (this.mediaRecorder.state !== 'inactive') {
+        // Enviar último chunk
+        if (this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
+            
+            // Aguardar processamento do último chunk
+            await new Promise((resolve) => {
+                const originalStopHandler = this.mediaRecorder.onstop;
+                this.mediaRecorder.onstop = () => {
+                    this.processChunk().then(resolve);
+                    if (originalStopHandler) {
+                        this.mediaRecorder.onstop = originalStopHandler;
+                    }
+                };
+            });
         }
+
+        // Aguardar todos os uploads pendentes
+        await this.waitForPendingUploads();
+
+        // Finalizar sessão no servidor
+        await this.finalizeSession();
 
         // Parar todos os streams
         this.stopAllStreams();
@@ -657,16 +696,25 @@ class AudioAIClient {
 
     resetUI() {
         this.isRecording = false;
+        this.isStopping = false;
         this.startBtn.disabled = false;
         this.stopBtn.disabled = true;
         this.recordModeSelect.disabled = false;
         
-        // Parar timer
+        // Parar timers
         this.stopTimer();
+        if (this.chunkInterval) {
+            clearInterval(this.chunkInterval);
+            this.chunkInterval = null;
+        }
         this.timer.textContent = '00:00';
         
-        // Limpar chunks de áudio
+        // Limpar chunks de áudio e sessão
         this.audioChunks = [];
+        this.sessionId = null;
+        this.chunkIndex = 0;
+        this.pendingUploads.clear();
+        this.accumulatedTranscript = '';
         
         // Resetar métricas
         this.segments = 0;
@@ -690,6 +738,252 @@ class AudioAIClient {
     getRecordingDuration() {
         if (!this.recordingStartTime) return 0;
         return Math.floor((Date.now() - this.recordingStartTime) / 1000);
+    }
+
+    // Sistema de chunks em tempo real
+    generateSessionId() {
+        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    startChunkSystem() {
+        // Enviar primeiro chunk após 5 segundos
+        this.chunkInterval = setInterval(() => {
+            if (this.isRecording && !this.isStopping) {
+                this.processChunkInterval();
+            }
+        }, 5000); // 5 segundos
+    }
+
+    processChunkInterval() {
+        if (!this.mediaRecorder || this.mediaRecorder.state !== 'recording') {
+            console.log('⚠️ MediaRecorder não está gravando, pulando chunk');
+            return;
+        }
+
+        if (this.isStopping) {
+            console.log('⚠️ Gravação está parando, pulando chunk');
+            return;
+        }
+
+        try {
+            console.log(`🔄 Processando chunk ${this.chunkIndex} aos ${this.getRecordingDuration()}s`);
+            
+            // Parar gravação atual para criar chunk
+            this.mediaRecorder.stop();
+            
+            // Aguardar o evento 'stop' para processar o chunk
+            this.mediaRecorder.onstop = () => {
+                console.log(`📦 Evento 'stop' recebido para chunk ${this.chunkIndex}`);
+                this.processChunk();
+            };
+        } catch (error) {
+            console.error('Erro ao processar chunk:', error);
+            this.addTranscriptMessage('Gravação Sistema', `Erro no chunk ${this.chunkIndex}: ${error.message}`);
+        }
+    }
+
+    async processChunk() {
+        if (this.audioChunks.length === 0) {
+            this.restartRecording();
+            return;
+        }
+
+        const chunkIndex = this.chunkIndex;
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        
+        if (audioBlob.size === 0) {
+            this.restartRecording();
+            return;
+        }
+
+        console.log(`📦 Chunk ${chunkIndex} criado: ${audioBlob.size} bytes`);
+
+        // Limpar chunks para próxima gravação
+        this.audioChunks = [];
+
+        // Incrementar índice para próximo chunk
+        this.chunkIndex++;
+
+        // Enviar chunk para servidor (assíncrono)
+        this.uploadChunk(audioBlob, chunkIndex);
+
+        // Reiniciar gravação imediatamente
+        this.restartRecording();
+    }
+
+    async uploadChunk(audioBlob, chunkIndex) {
+        const uploadId = `${this.sessionId}_chunk_${chunkIndex}`;
+        this.pendingUploads.add(uploadId);
+
+        try {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, `chunk_${chunkIndex}.webm`);
+            formData.append('sessionId', this.sessionId);
+            formData.append('chunkIndex', chunkIndex.toString());
+
+            const response = await fetch(`${this.serverUrl}/upload-chunk`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`Erro ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            // Apenas acumular transcrição, sem processar com GPT
+            if (result.transcript) {
+                this.accumulatedTranscript += result.transcript + ' ';
+                this.displayRealtimeTranscript();
+                console.log(`✅ Chunk ${chunkIndex} transcrito e acumulado`);
+            }
+
+        } catch (error) {
+            console.error(`Erro no chunk ${chunkIndex}:`, error);
+            this.addTranscriptMessage('Gravação Sistema', `Erro no chunk ${chunkIndex}: ${error.message}`);
+        } finally {
+            this.pendingUploads.delete(uploadId);
+        }
+    }
+
+    restartRecording() {
+        if (!this.isRecording || this.isStopping) {
+            console.log('⚠️ Não reiniciando gravação - não está gravando ou está parando');
+            return;
+        }
+
+        try {
+            console.log('🔄 Reiniciando gravação...');
+            
+            // Reiniciar MediaRecorder com o mesmo stream
+            const mimeType = this.getBestMimeType();
+            const stream = this.micStream || this.systemStream || this.mixedStream;
+            
+            if (!stream) {
+                console.error('❌ Nenhum stream disponível para reiniciar gravação');
+                this.showError('Erro: Stream de áudio não disponível');
+                return;
+            }
+            
+            // Verificar se o stream ainda está ativo
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length === 0 || audioTracks[0].readyState === 'ended') {
+                console.error('❌ Stream de áudio não está mais ativo');
+                this.showError('Erro: Stream de áudio não está mais ativo');
+                return;
+            }
+            
+            this.mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+            this.setupMediaRecorder();
+            this.mediaRecorder.start();
+            
+            console.log('✅ Gravação reiniciada com sucesso');
+        } catch (error) {
+            console.error('❌ Erro ao reiniciar gravação:', error);
+            this.showError(`Erro ao reiniciar gravação: ${error.message}`);
+        }
+    }
+
+    displayRealtimeTranscript() {
+        // Limpar estado vazio se existir
+        this.clearEmptyStates();
+        
+        // Atualizar ou criar mensagem de transcrição em tempo real
+        let transcriptElement = document.getElementById('realtime-transcript');
+        if (!transcriptElement) {
+            transcriptElement = document.createElement('div');
+            transcriptElement.id = 'realtime-transcript';
+            transcriptElement.className = 'message lead';
+            this.transcriptArea.appendChild(transcriptElement);
+        }
+
+        const displayText = this.accumulatedTranscript || 'Aguardando transcrição...';
+        
+        transcriptElement.innerHTML = `
+            <div class="message-speaker">Transcrição (Tempo Real) - ${this.chunkIndex} chunks</div>
+            <div class="message-bubble">
+                <div class="message-text">${displayText}</div>
+            </div>
+        `;
+
+        this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+    }
+
+    async waitForPendingUploads() {
+        const maxWaitTime = 30000; // 30 segundos máximo
+        const startTime = Date.now();
+        
+        while (this.pendingUploads.size > 0 && (Date.now() - startTime) < maxWaitTime) {
+            this.updateCallStatus(`Aguardando ${this.pendingUploads.size} transcrições pendentes...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        if (this.pendingUploads.size > 0) {
+            console.warn(`Timeout: ${this.pendingUploads.size} uploads ainda pendentes`);
+            this.addTranscriptMessage('Gravação Sistema', `Aviso: ${this.pendingUploads.size} transcrições não foram processadas a tempo`);
+        }
+    }
+
+    async finalizeSession() {
+        try {
+            this.updateCallStatus('Processando transcrição final...');
+            
+            const response = await fetch(`${this.serverUrl}/finalize`, {
+                method: 'POST',
+                headers: {
+                    ...this.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    sessionId: this.sessionId
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Erro ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            // Exibir resultado final
+            this.displayFinalResult(result);
+
+        } catch (error) {
+            console.error('Erro ao finalizar sessão:', error);
+            this.showError(`Erro ao processar transcrição final: ${error.message}`);
+        }
+    }
+
+    displayFinalResult(result) {
+        // Limpar estado vazio
+        this.clearEmptyStates();
+        
+        // Remover transcrição em tempo real
+        const realtimeElement = document.getElementById('realtime-transcript');
+        if (realtimeElement) {
+            realtimeElement.remove();
+        }
+        
+        // Adicionar transcrição final como mensagem do lead
+        if (result.fullTranscript) {
+            this.addTranscriptMessage('Transcrição Final', result.fullTranscript);
+            this.segments++;
+            this.updateMetrics();
+        }
+        
+        // Adicionar análise como sugestão (apenas quando encerrar)
+        if (result.analysis) {
+            this.addSuggestion(result.analysis);
+            this.suggestions++;
+            this.updateMetrics();
+        }
+        
+        // Atualizar status
+        this.updateCallStatus('Processamento concluído');
+        
+        console.log(`🎯 Gravação finalizada: ${this.chunkIndex} chunks processados`);
     }
 }
 

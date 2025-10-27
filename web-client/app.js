@@ -408,13 +408,38 @@ class AudioAIClient {
             
             this.mixedStream = destination.stream;
             
+            // Verificar estado dos streams antes de criar MediaRecorder
+            console.log('🔍 Verificando estado dos streams:');
+            console.log('  - Microfone tracks:', this.micStream.getAudioTracks().length);
+            console.log('  - Sistema tracks:', systemAudioTracks.length);
+            console.log('  - Mixed stream tracks:', this.mixedStream.getAudioTracks().length);
+            
+            // Verificar se os tracks estão ativos
+            this.micStream.getAudioTracks().forEach((track, index) => {
+                console.log(`  - Mic track ${index}:`, track.label, 'enabled:', track.enabled, 'readyState:', track.readyState);
+            });
+            systemAudioTracks.forEach((track, index) => {
+                console.log(`  - System track ${index}:`, track.label, 'enabled:', track.enabled, 'readyState:', track.readyState);
+            });
+            
             // Criar MediaRecorder com o stream mixado
             this.mediaRecorder = new MediaRecorder(this.mixedStream, {
                 mimeType: this.getBestMimeType()
             });
             
+            console.log('🎙️ MediaRecorder criado com stream mixado');
+            
             this.setupMediaRecorder();
             this.mediaRecorder.start();
+            
+            console.log('🚀 Gravação mista iniciada - AMBOS os canais ativos');
+            
+            // Monitorar ganhos durante a gravação
+            this.gainMonitorInterval = setInterval(() => {
+                if (this.micGain && this.systemGain) {
+                    console.log(`🎚️ Ganhos atuais - Mic: ${this.micGain.gain.value.toFixed(2)}, Sistema: ${this.systemGain.gain.value.toFixed(2)}`);
+                }
+            }, 5000); // A cada 5 segundos
             
         } catch (error) {
             // Limpar recursos
@@ -565,6 +590,12 @@ class AudioAIClient {
         // Limpar referências de ganho
         this.micGain = null;
         this.systemGain = null;
+        
+        // Parar monitor de ganhos
+        if (this.gainMonitorInterval) {
+            clearInterval(this.gainMonitorInterval);
+            this.gainMonitorInterval = null;
+        }
     }
 
     async processRecording() {
@@ -1109,11 +1140,16 @@ class AudioAIClient {
 
     // Função para ajustar mixagem em tempo real
     adjustMixRatio(newRatio) {
-        if (this.micGain && this.systemGain) {
+        if (this.micGain && this.systemGain && this.isRecording) {
             this.mixRatio = Math.max(0, Math.min(1, newRatio)); // Clamp entre 0 e 1
             this.micGain.gain.value = 1 - this.mixRatio;
             this.systemGain.gain.value = this.mixRatio;
             console.log(`🎚️ Mixagem ajustada - Microfone: ${(1-this.mixRatio)*100}%, Sistema: ${this.mixRatio*100}%`);
+            
+            // Verificar se os ganhos foram aplicados corretamente
+            console.log(`✅ Ganhos verificados - Mic: ${this.micGain.gain.value.toFixed(2)}, Sistema: ${this.systemGain.gain.value.toFixed(2)}`);
+        } else {
+            console.warn('⚠️ Não é possível ajustar mixagem - ganhos não disponíveis ou não está gravando');
         }
     }
 

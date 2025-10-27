@@ -1,7 +1,7 @@
 {
-  "name": "audio-ai-server",
+  "name": "omni-resume-server",
   "version": "1.0.0",
-  "description": "Servidor Node.js para processamento de áudio com OpenAI",
+  "description": "Servidor Node.js para processamento de áudio com OpenAI - Omni Resume",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -17,14 +17,17 @@
     "whisper",
     "chatgpt"
   ],
-  "author": "Audio AI Project",
+  "author": "Omni Resume Project",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.20.1",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "@supabase/supabase-js": "^2.38.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

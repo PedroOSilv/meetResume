@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omni Resume - Web</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="call-container">
+        <!-- Header: Lead info + timer + controles de gravação -->
+            <header class="call-header">
+                <div class="lead-info">
+                    <h2 id="leadName">Omni Resume</h2>
+                    <p id="callStatus">Chamada em andamento</p>
+                </div>
+                <div class="header-controls">
+                    <div class="timer" id="timer">00:00</div>
+                    <select id="recordMode" class="mode-select">
+                        <option value="microphone">Apenas Microfone</option>
+                        <option value="system">Apenas Sistema</option>
+                        <option value="both">Microfone + Sistema</option>
+                    </select>
+                    <button id="logoutBtn" class="logout-btn" title="Sair">
+                        <span class="logout-icon">🚪</span>
+                        Sair
+                    </button>
+                </div>
+            </header>
+        
+        <!-- Main: 2 painéis lado a lado -->
+        <main class="call-main">
+            <!-- Painel esquerdo: Resumo IA -->
+            <section class="suggestions-panel">
+                <div class="panel-header">
+                    <h3>Resumo IA</h3>
+                </div>
+                <div id="suggestionsArea" class="suggestions-content">
+                    <div class="empty-state">
+                        <div class="lightbulb-icon">AI</div>
+                        <p>Resumo aparecerá aqui após o processamento do áudio</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Painel direito: Transcrição -->
+            <section class="transcript-panel">
+                <div class="panel-header">
+                    <h3>Transcrição</h3>
+                </div>
+                <div id="transcriptArea" class="transcript-content">
+                    <div class="empty-state">
+                        <p>A transcrição aparecerá aqui quando a chamada começar...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Footer: Botões de controle -->
+        <footer class="call-footer">
+            <div class="metrics">
+                <span id="segmentsCount">Segmentos: 0</span>
+                <span id="objectionsCount">Objeções: 0</span>
+                <span id="suggestionsCount">Sugestões: 0</span>
+            </div>
+            <div class="controls">
+                <button id="startBtn" class="btn btn-start">
+                    <span class="btn-icon">●</span>
+                    Iniciar Gravação
+                </button>
+                <button id="stopBtn" class="btn btn-stop" disabled>
+                    <span class="btn-icon">■</span>
+                    Encerrar
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

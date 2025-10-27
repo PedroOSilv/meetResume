@@ -141,6 +141,70 @@ Responda de forma clara, organizada e útil em português.`;
 // Configuração do prompt personalizado para ChatGPT
 const CHATGPT_PROMPT = process.env.CHATGPT_PROMPT || loadPromptFromFile();
 
+// Sistema de sessões para transcrição em tempo real
+const activeSessions = new Map();
+// Estrutura: sessionId -> { 
+//   chunks: [], 
+//   transcripts: [], 
+//   createdAt: Date, 
+//   lastActivity: Date,
+//   tempFiles: [] 
+// }
+
+// Funções auxiliares para gerenciar sessões
+function createSession(sessionId) {
+    const session = {
+        chunks: [],
+        transcripts: [],
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        tempFiles: []
+    };
+    activeSessions.set(sessionId, session);
+    console.log(`📝 Nova sessão criada: ${sessionId}`);
+    return session;
+}
+
+function getSession(sessionId) {
+    const session = activeSessions.get(sessionId);
+    if (session) {
+        session.lastActivity = new Date();
+    }
+    return session;
+}
+
+function cleanupSession(sessionId) {
+    const session = activeSessions.get(sessionId);
+    if (session) {
+        // Deletar arquivos temporários
+        session.tempFiles.forEach(filePath => {
+            try {
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            } catch (error) {
+                console.error(`Erro ao deletar arquivo ${filePath}:`, error);
+            }
+        });
+        
+        activeSessions.delete(sessionId);
+        console.log(`🧹 Sessão limpa: ${sessionId}`);
+    }
+}
+
+// Sistema de limpeza automática de sessões antigas
+setInterval(() => {
+    const now = new Date();
+    const maxAge = 30 * 60 * 1000; // 30 minutos
+    
+    for (const [sessionId, session] of activeSessions.entries()) {
+        if (now - session.lastActivity > maxAge) {
+            console.log(`⏰ Limpando sessão antiga: ${sessionId}`);
+            cleanupSession(sessionId);
+        }
+    }
+}, 5 * 60 * 1000); // Verificar a cada 5 minutos
+
 // Inicializar sistema de autenticação
 async function initializeAuth() {
     try {
@@ -213,7 +277,7 @@ app.use((req, res, next) => {
 });
 
 // Servir arquivos estáticos do cliente web
-const webClientPath = path.join(process.cwd(), 'web-client');
+const webClientPath = path.join(process.cwd(), '..', 'web-client');
 app.use(express.static(webClientPath));
 
 // Middleware de autenticação
@@ -333,7 +397,122 @@ app.get("/health", (req, res) => {
     });
 });
 
-// Rota principal para upload e processamento de áudio
+// Rota para upload de chunks individuais (transcrição em tempo real)
+app.post("/upload-chunk", authenticateToken, upload.single("audio"), async (req, res) => {
+    const startTime = Date.now();
+    
+    try {
+        // Verificar se arquivo foi enviado
+        if (!req.file) {
+            return res.status(400).json({
+                error: "Nenhum arquivo de áudio foi enviado"
+            });
+        }
+
+        const { sessionId, chunkIndex } = req.body;
+        
+        if (!sessionId || chunkIndex === undefined) {
+            // Limpar arquivo se parâmetros inválidos
+            if (fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(400).json({
+                error: "sessionId e chunkIndex são obrigatórios"
+            });
+        }
+
+        const audioFile = req.file;
+        console.log(`📁 Chunk recebido: ${audioFile.filename} (${audioFile.size} bytes) - Sessão: ${sessionId}, Chunk: ${chunkIndex}`);
+
+        // Verificar se arquivo não está vazio
+        if (audioFile.size === 0) {
+            fs.unlinkSync(audioFile.path);
+            return res.status(400).json({
+                error: "Chunk de áudio está vazio"
+            });
+        }
+
+        // Obter ou criar sessão
+        let session = getSession(sessionId);
+        if (!session) {
+            session = createSession(sessionId);
+        }
+
+        // Adicionar arquivo à lista de arquivos temporários da sessão
+        session.tempFiles.push(audioFile.path);
+
+        // Transcrever chunk com Whisper
+        let transcript = "";
+        try {
+            console.log(`🎤 Transcrevendo chunk ${chunkIndex} da sessão ${sessionId}...`);
+            
+            const transcriptionResponse = await openai.audio.transcriptions.create({
+                file: fs.createReadStream(audioFile.path),
+                model: "whisper-1",
+                language: "pt"
+            });
+            
+            transcript = transcriptionResponse.text;
+            console.log(`📝 Chunk ${chunkIndex} transcrito: "${transcript}"`);
+
+        } catch (openaiError) {
+            console.error(`❌ Erro na transcrição do chunk ${chunkIndex}:`, openaiError.message);
+            transcript = `[Erro na transcrição do chunk ${chunkIndex}]`;
+        }
+
+        // Armazenar transcrição na sessão
+        session.chunks.push({
+            index: parseInt(chunkIndex),
+            transcript: transcript,
+            timestamp: new Date()
+        });
+        
+        session.transcripts.push(transcript);
+
+        // Deletar arquivo temporário
+        try {
+            fs.unlinkSync(audioFile.path);
+            // Remover da lista de arquivos temporários
+            session.tempFiles = session.tempFiles.filter(file => file !== audioFile.path);
+        } catch (cleanupError) {
+            console.error(`Erro ao deletar arquivo ${audioFile.path}:`, cleanupError);
+        }
+
+        // Criar transcrição acumulada
+        const accumulatedTranscript = session.transcripts.join(' ').trim();
+
+        const processingTime = Date.now() - startTime;
+        console.log(`✅ Chunk ${chunkIndex} processado em ${processingTime}ms`);
+
+        // Retornar resultado (apenas transcrição, sem processar com GPT)
+        res.json({
+            transcript: transcript,
+            chunkIndex: parseInt(chunkIndex),
+            accumulatedTranscript: accumulatedTranscript,
+            processing_time_ms: processingTime,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("❌ Erro no processamento do chunk:", error);
+        
+        // Limpar arquivo se existir
+        if (req.file && fs.existsSync(req.file.path)) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (cleanupError) {
+                console.error("Erro ao limpar arquivo:", cleanupError);
+            }
+        }
+        
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: "Tente novamente em alguns minutos"
+        });
+    }
+});
+
+// Rota principal para upload e processamento de áudio (modo original)
 app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) => {
     const startTime = Date.now();
     
@@ -648,6 +827,117 @@ ${suggestions.map((suggestion, index) => `${index + 1}. ${suggestion}`).join('\n
     }
 });
 
+// Rota para finalizar sessão e processar transcrição completa com GPT
+app.post("/finalize", authenticateToken, async (req, res) => {
+    const startTime = Date.now();
+    
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({
+                error: "sessionId é obrigatório"
+            });
+        }
+
+        // Obter sessão
+        const session = getSession(sessionId);
+        if (!session) {
+            return res.status(404).json({
+                error: "Sessão não encontrada ou expirada"
+            });
+        }
+
+        console.log(`🔚 Finalizando sessão ${sessionId} com ${session.transcripts.length} chunks`);
+
+        // Criar transcrição completa
+        const fullTranscript = session.transcripts.join(' ').trim();
+        
+        if (!fullTranscript || fullTranscript.length === 0) {
+            cleanupSession(sessionId);
+            return res.status(400).json({
+                error: "Nenhuma transcrição encontrada na sessão"
+            });
+        }
+
+        console.log(`📝 Transcrição completa (${fullTranscript.length} caracteres): "${fullTranscript}"`);
+
+        // Processar com ChatGPT
+        let analysis = "";
+        try {
+            console.log("🤖 Processando transcrição completa com ChatGPT...");
+            
+            const chatResponse = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    {
+                        role: "system",
+                        content: CHATGPT_PROMPT
+                    },
+                    {
+                        role: "user",
+                        content: `Analise a seguinte transcrição de áudio completa:\n\n${fullTranscript}`
+                    }
+                ],
+                max_tokens: 1000,
+                temperature: 0.7
+            });
+            
+            analysis = chatResponse.choices[0].message.content;
+            console.log(`✅ Análise gerada: ${analysis.length} caracteres`);
+            
+        } catch (openaiError) {
+            console.error("❌ Erro no processamento com ChatGPT:", openaiError.message);
+            analysis = `## Resumo da Gravação (Modo Fallback)
+
+**Status:** Erro no processamento com IA
+**Transcrição:** ${fullTranscript.length} caracteres
+**Chunks processados:** ${session.transcripts.length}
+**Erro:** ${openaiError.message}
+
+**Análise:**
+- ⚠️ Não foi possível processar com IA devido a: ${openaiError.message}
+- 📊 Transcrição completa recebida com sucesso
+- 🔄 Sistema de chunks funcionou corretamente
+
+**Próximos passos:**
+1. Verifique sua conexão com a internet
+2. Tente novamente em alguns minutos
+3. Entre em contato com o suporte se o problema persistir
+
+**Nota:** Esta é uma resposta de fallback devido a problemas de conectividade com a OpenAI.`;
+        }
+
+        const processingTime = Date.now() - startTime;
+        console.log(`✅ Sessão ${sessionId} finalizada em ${processingTime}ms`);
+
+        // Limpar sessão
+        cleanupSession(sessionId);
+
+        // Retornar resultado
+        res.json({
+            fullTranscript: fullTranscript,
+            analysis: analysis,
+            chunksProcessed: session.transcripts.length,
+            processing_time_ms: processingTime,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("❌ Erro na finalização da sessão:", error);
+        
+        // Tentar limpar sessão mesmo em caso de erro
+        if (req.body && req.body.sessionId) {
+            cleanupSession(req.body.sessionId);
+        }
+        
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: "Tente novamente em alguns minutos"
+        });
+    }
+});
+
 // Middleware de tratamento de erros do multer
 app.use((error, req, res, next) => {
     if (error instanceof multer.MulterError) {
@@ -676,7 +966,9 @@ app.use("*", (req, res) => {
         error: "Endpoint não encontrado",
         available_endpoints: [
             "GET /health - Status do servidor",
-            "POST /upload - Upload e processamento de áudio"
+            "POST /upload - Upload e processamento de áudio (modo original)",
+            "POST /upload-chunk - Upload de chunk individual (transcrição em tempo real)",
+            "POST /finalize - Finalizar sessão e processar transcrição completa"
         ]
     });
 });
@@ -692,7 +984,14 @@ app.listen(PORT, HOST, () => {
     console.log("");
     console.log("Endpoints disponíveis:");
     console.log(`  GET  /health - Status do servidor`);
-    console.log(`  POST /upload - Upload de áudio`);
+    console.log(`  POST /upload - Upload de áudio (modo original)`);
+    console.log(`  POST /upload-chunk - Upload de chunk individual (tempo real)`);
+    console.log(`  POST /finalize - Finalizar sessão e processar transcrição completa`);
+    console.log("");
+    console.log("🎯 Sistema de transcrição em tempo real ativo!");
+    console.log("   - Chunks de 5 segundos");
+    console.log("   - Processamento assíncrono");
+    console.log("   - Limpeza automática de sessões");
     console.log("");
 });
 

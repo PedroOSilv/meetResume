@@ -277,7 +277,10 @@ app.use((req, res, next) => {
 });
 
 // Servir arquivos estáticos do cliente web
-const webClientPath = path.join(process.cwd(), '..', 'web-client');
+// No Vercel, o servidor roda da raiz do projeto, não do diretório server/
+const webClientPath = process.env.NODE_ENV === 'production' 
+    ? path.join(process.cwd(), 'web-client')
+    : path.join(process.cwd(), '..', 'web-client');
 app.use(express.static(webClientPath));
 
 // Middleware de autenticação

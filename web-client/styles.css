@@ -338,9 +338,8 @@ body::before {
     line-height: 1.6;
     font-size: 0.875rem;
     color: var(--text-primary);
-    max-height: 400px;
-    overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Removido max-height e overflow-y para permitir altura completa */
 }
 
 /* Estilos para markdown renderizado */
@@ -481,26 +480,35 @@ body::before {
     border: 1px solid var(--primary-color);
 }
 
-/* Scrollbar estilo Teams */
+/* Scrollbar estilo Teams melhorado */
 .transcript-content::-webkit-scrollbar,
 .suggestions-content::-webkit-scrollbar {
-    width: 4px;
+    width: 6px;
 }
 
 .transcript-content::-webkit-scrollbar-track,
 .suggestions-content::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(55, 65, 81, 0.1);
+    border-radius: 3px;
 }
 
 .transcript-content::-webkit-scrollbar-thumb,
 .suggestions-content::-webkit-scrollbar-thumb {
     background: #4b5563;
-    border-radius: 2px;
+    border-radius: 3px;
+    transition: background 0.2s ease;
 }
 
 .transcript-content::-webkit-scrollbar-thumb:hover,
 .suggestions-content::-webkit-scrollbar-thumb:hover {
     background: #6b7280;
+}
+
+/* Scrollbar para Firefox */
+.transcript-content,
+.suggestions-content {
+    scrollbar-width: thin;
+    scrollbar-color: #4b5563 rgba(55, 65, 81, 0.1);
 }
 
 /* Responsividade */

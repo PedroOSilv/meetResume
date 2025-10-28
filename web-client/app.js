@@ -24,6 +24,8 @@ class AudioAIClient {
         this.objectionsCount = document.getElementById('objectionsCount');
         this.suggestionsCount = document.getElementById('suggestionsCount');
         this.logoutBtn = document.getElementById('logoutBtn');
+        this.clearChatBtn = document.getElementById('clearChatBtn');
+        this.clearTranscriptBtn = document.getElementById('clearTranscriptBtn');
 
         // Estado da gravação
         this.isRecording = false;
@@ -93,6 +95,8 @@ class AudioAIClient {
         this.startBtn.addEventListener('click', () => this.startRecording());
         this.stopBtn.addEventListener('click', () => this.stopRecording());
         this.logoutBtn.addEventListener('click', () => this.logout());
+        this.clearChatBtn.addEventListener('click', () => this.clearChat());
+        this.clearTranscriptBtn.addEventListener('click', () => this.clearTranscript());
 
         // Verificar suporte do navegador
         this.checkBrowserSupport();
@@ -1272,6 +1276,48 @@ async mixWebmBlobs(micBlob, sysBlob) {
         }
         
         console.log('✅ Objeção atualizada:', text.substring(0, 50) + '...');
+    }
+
+    clearChat() {
+        // Limpar todas as sugestões e objeções
+        const suggestionCards = this.suggestionsArea.querySelectorAll('.suggestion-card');
+        suggestionCards.forEach(card => card.remove());
+        
+        // Resetar contadores
+        this.objections = 0;
+        this.suggestions = 0;
+        this.updateMetrics();
+        
+        // Adicionar estado vazio se não houver nenhum
+        if (this.suggestionsArea.children.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.innerHTML = `
+                <div class="lightbulb-icon">AI</div>
+                <p>Resumo aparecerá aqui após o processamento do áudio</p>
+            `;
+            this.suggestionsArea.appendChild(emptyState);
+        }
+        
+        console.log('🗑️ Chat limpo');
+    }
+
+    clearTranscript() {
+        // Limpar todas as mensagens de transcrição
+        const transcriptMessages = this.transcriptArea.querySelectorAll('.message');
+        transcriptMessages.forEach(message => message.remove());
+        
+        // Adicionar estado vazio se não houver nenhum
+        if (this.transcriptArea.children.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.innerHTML = `
+                <p>A transcrição aparecerá aqui quando a chamada começar...</p>
+            `;
+            this.transcriptArea.appendChild(emptyState);
+        }
+        
+        console.log('🗑️ Transcrição limpa');
     }
 
     getRecentTranscript() {

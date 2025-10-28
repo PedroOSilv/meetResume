@@ -1006,6 +1006,81 @@ app.use((error, req, res, next) => {
     });
 });
 
+// Endpoint para assistente de objeções
+app.post("/api/assistant/objection", async (req, res) => {
+    try {
+        const { transcript } = req.body;
+        
+        if (!transcript || !transcript.trim()) {
+            return res.status(400).json({
+                error: "Transcrição é obrigatória"
+            });
+        }
+
+        console.log("🤖 Processando objeção para transcrição:", transcript.substring(0, 100) + "...");
+
+        // Criar thread para o assistente
+        const thread = await openai.beta.threads.create();
+        
+        // Enviar mensagem para o assistente
+        await openai.beta.threads.messages.create(thread.id, {
+            role: "user",
+            content: `Analise esta transcrição e sugira uma objeção relevante para o contexto de vendas. Transcrição: ${transcript}`
+        });
+
+        // Executar o assistente
+        const run = await openai.beta.threads.runs.create(thread.id, {
+            assistant_id: "asst_R9q8LsRLzlIt8EkNiTrGB3WL"
+        });
+
+        // Aguardar conclusão do run
+        let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+        let attempts = 0;
+        const maxAttempts = 20; // 20 tentativas = ~20 segundos máximo
+
+        while (runStatus.status !== "completed" && runStatus.status !== "failed" && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Aguardar 1 segundo
+            runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+            attempts++;
+        }
+
+        if (runStatus.status === "failed") {
+            throw new Error(`Assistente falhou: ${runStatus.last_error?.message || 'Erro desconhecido'}`);
+        }
+
+        if (attempts >= maxAttempts) {
+            throw new Error("Timeout: Assistente demorou muito para responder");
+        }
+
+        // Buscar mensagens do assistente
+        const messages = await openai.beta.threads.messages.list(thread.id);
+        const assistantMessage = messages.data.find(msg => msg.role === "assistant");
+        
+        if (!assistantMessage) {
+            return res.json({
+                objection: null,
+                message: "Nenhuma objeção relevante encontrada"
+            });
+        }
+
+        const objection = assistantMessage.content[0]?.text?.value || null;
+
+        console.log("✅ Objeção gerada pelo assistente");
+
+        res.json({
+            objection: objection,
+            message: "Objeção processada com sucesso"
+        });
+
+    } catch (error) {
+        console.error("❌ Erro no endpoint de objeção:", error.message);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
 // Rota 404
 app.use("*", (req, res) => {
     res.status(404).json({
@@ -1014,7 +1089,8 @@ app.use("*", (req, res) => {
             "GET /health - Status do servidor",
             "POST /upload - Upload e processamento de áudio (modo original)",
             "POST /upload-chunk - Upload de chunk individual (transcrição em tempo real)",
-            "POST /finalize - Finalizar sessão e processar transcrição completa"
+            "POST /finalize - Finalizar sessão e processar transcrição completa",
+            "POST /api/assistant/objection - Buscar sugestão de objeção do assistente"
         ]
     });
 });

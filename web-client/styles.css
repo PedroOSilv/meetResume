@@ -339,6 +339,18 @@ body::before {
     background: rgba(59, 130, 246, 0.05);
 }
 
+/* Estilo específico para objeções */
+.objection-card {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.objection-card.active {
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.08);
+    box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.2);
+}
+
 .suggestion-header {
     display: flex;
     align-items: center;

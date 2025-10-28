@@ -4,6 +4,8 @@
  * VERSÃO CORRIGIDA - Mixagem funcionando corretamente
  */
 
+import AssistantService from './services/AssistantService.js';
+
 class AudioAIClient {
     constructor() {
         // Verificar autenticação
@@ -78,6 +80,9 @@ class AudioAIClient {
         this.serverUrl = window.location.hostname === 'localhost' 
             ? 'http://localhost:3005' 
             : window.location.origin;
+
+        // Inicializar serviço de assistente
+        this.assistantService = new AssistantService(this.serverUrl, this.getAuthHeaders());
 
         this.init();
     }
@@ -177,6 +182,13 @@ class AudioAIClient {
             this.recordModeSelect.disabled = true;
 
             this.startTimer();
+            
+            // Iniciar polling de objeções
+            this.assistantService.startPolling(
+                (objection) => this.addObjectionMessage(objection),
+                (error) => console.error('Erro no assistente:', error),
+                () => this.getRecentTranscript() // Callback para obter transcrição recente
+            );
             
             // No modo "both", o sistema de chunks é gerenciado pela função startMixedRecording
             if (this.recordMode !== 'both') {
@@ -850,6 +862,9 @@ async mixWebmBlobs(micBlob, sysBlob) {
 
         // PARAR TIMER IMEDIATAMENTE
         this.stopTimer();
+        
+        // Parar polling de objeções
+        this.assistantService.stopPolling();
 
         try {
             // Parar sistema de chunks
@@ -1218,6 +1233,59 @@ async mixWebmBlobs(micBlob, sysBlob) {
         
         this.suggestionsArea.appendChild(suggestionDiv);
         this.suggestionsArea.scrollTop = this.suggestionsArea.scrollHeight;
+    }
+
+    addObjectionMessage(text) {
+        // Remover objeção anterior se existir
+        const existingObjection = this.suggestionsArea.querySelector('.objection-card');
+        if (existingObjection) {
+            existingObjection.remove();
+        }
+        
+        const objectionDiv = document.createElement('div');
+        objectionDiv.className = 'suggestion-card objection-card active';
+        
+        const formattedText = this.formatResumeText(text);
+        
+        objectionDiv.innerHTML = `
+            <div class="suggestion-header">
+                <span>Objeção IA</span>
+                <button class="copy-icon-btn" title="Copiar objeção">
+                    Copy
+                </button>
+            </div>
+            <div class="suggestion-text">${formattedText}</div>
+        `;
+        
+        const copyBtn = objectionDiv.querySelector('.copy-icon-btn');
+        copyBtn.addEventListener('click', () => {
+            this.copyToClipboard(text);
+        });
+        
+        this.suggestionsArea.appendChild(objectionDiv);
+        this.suggestionsArea.scrollTop = this.suggestionsArea.scrollHeight;
+        
+        // Incrementar contador de objeções apenas na primeira vez
+        if (!existingObjection) {
+            this.objections++;
+            this.updateMetrics();
+        }
+        
+        console.log('✅ Objeção atualizada:', text.substring(0, 50) + '...');
+    }
+
+    getRecentTranscript() {
+        if (!this.accumulatedTranscript || this.accumulatedTranscript.trim().length === 0) {
+            return '';
+        }
+        
+        // Extrair últimos 60 segundos de transcrição
+        // Assumindo ~150 palavras por minuto = ~2.5 palavras por segundo
+        // 60 segundos = ~150 palavras
+        const words = this.accumulatedTranscript.trim().split(/\s+/);
+        const recentWords = words.slice(-150); // Últimas 150 palavras
+        
+        return recentWords.join(' ');
     }
 
     formatResumeText(text) {

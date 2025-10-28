@@ -144,7 +144,39 @@ body::before {
 }
 
 .logout-icon {
-    font-size: 0.875rem;
+    width: 16px;
+    height: 16px;
+    margin-right: 0.5rem;
+    position: relative;
+    display: inline-block;
+}
+
+.logout-icon::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-radius: 2px;
+    background: transparent;
+}
+
+.logout-icon::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 2px;
+    background: currentColor;
+    border-radius: 1px;
+    box-shadow: 
+        0 -3px 0 currentColor,
+        0 3px 0 currentColor;
 }
 
 /* Main content */

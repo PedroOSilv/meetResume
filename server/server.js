@@ -277,10 +277,10 @@ app.use((req, res, next) => {
 });
 
 // Servir arquivos estáticos do cliente web
-// No Vercel, o servidor roda da raiz do projeto, não do diretório server/
+// No desenvolvimento, o servidor roda do diretório server/, então precisa subir um nível
 const webClientPath = process.env.NODE_ENV === 'production' 
     ? path.join(process.cwd(), 'web-client')
-    : path.join(process.cwd(), 'web-client');
+    : path.join(process.cwd(), '..', 'web-client');
 app.use(express.static(webClientPath));
 
 // Middleware de autenticação
@@ -308,7 +308,7 @@ app.get("/", (req, res) => {
     console.log('📄 Tentando servir:', path.join(webClientPath, 'index.html'));
     
     const indexPath = path.join(webClientPath, 'index.html');
-    console.log('✅ Arquivo existe?', require('fs').existsSync(indexPath));
+    console.log('✅ Arquivo existe?', fs.existsSync(indexPath));
     
     res.sendFile(indexPath, (err) => {
         if (err) {

@@ -34,6 +34,20 @@ class AudioAIClient {
         this.recordingStartTime = null;
         this.timerInterval = null;
 
+        // Gravadores do modo "both"
+        this.micRecorder = null;
+        this.sysRecorder = null;
+        this.micChunks = [];
+        this.sysChunks = [];
+        
+        // Para gravação separada em WAV
+        this.micWavData = [];
+        this.sysWavData = [];
+        this.audioContext = null;
+        this.micProcessor = null;
+        this.sysProcessor = null;
+        this.sampleRate = 44100;
+
         // Sistema de chunks em tempo real
         this.sessionId = null;
         this.chunkInterval = null;
@@ -146,7 +160,11 @@ class AudioAIClient {
             this.recordModeSelect.disabled = true;
 
             this.startTimer();
-            this.startChunkSystem();
+            
+            // No modo "both", o sistema de chunks é gerenciado pela função startMixedRecording
+            if (this.recordMode !== 'both') {
+                this.startChunkSystem();
+            }
 
             this.updateCallStatus('Gravando...');
             this.addTranscriptMessage('Gravação Sistema', 'Gravação iniciada');
@@ -278,37 +296,77 @@ class AudioAIClient {
     // ============================================
     // FUNÇÃO CORRIGIDA - MIXAGEM FUNCIONANDO
     // ============================================
-    async startMixedRecording() {
+      async startMixedRecording() {
         try {
-          console.log('🎯 Iniciando gravação separada (microfone + sistema)...');
+          console.log('🎯 Iniciando gravação separada em WAV (microfone + sistema)...');
+          
+          // Gerar sessionId
+          this.sessionId = this.generateSessionId();
+          console.log('🆔 Session ID gerado:', this.sessionId);
       
           // Capturar microfone
+          console.log('🎤 Solicitando acesso ao microfone...');
           this.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 }
+            audio: { echoCancellation: true, noiseSuppression: true, sampleRate: this.sampleRate }
           });
-          console.log('🎤 Microfone iniciado');
+          console.log('🎤 Microfone iniciado:', this.micStream.getAudioTracks().length, 'faixas de áudio');
       
           // Capturar sistema (áudio da aba)
+          console.log('🖥️ Solicitando acesso ao sistema...');
           this.systemStream = await navigator.mediaDevices.getDisplayMedia({
-            audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 48000 },
+            audio: { echoCancellation: false, noiseSuppression: false, sampleRate: this.sampleRate },
             video: true
           });
           this.systemStream.getVideoTracks().forEach(t => t.stop());
-          console.log('🖥️ Sistema iniciado');
+          console.log('🖥️ Sistema iniciado:', this.systemStream.getAudioTracks().length, 'faixas de áudio');
       
-          // Criação dos gravadores separados
-          const mimeType = this.getBestMimeType();
-          this.micRecorder = new MediaRecorder(this.micStream, { mimeType });
-          this.sysRecorder = new MediaRecorder(this.systemStream, { mimeType });
+          // Verificar se ambos os streams têm áudio
+          if (this.micStream.getAudioTracks().length === 0) {
+            throw new Error('Microfone não capturou áudio');
+          }
+          if (this.systemStream.getAudioTracks().length === 0) {
+            throw new Error('Sistema não capturou áudio');
+          }
       
-          this.micChunks = [];
-          this.sysChunks = [];
-      
-          this.micRecorder.ondataavailable = e => e.data.size > 0 && this.micChunks.push(e.data);
-          this.sysRecorder.ondataavailable = e => e.data.size > 0 && this.sysChunks.push(e.data);
-      
-          this.micRecorder.start(5000);
-          this.sysRecorder.start(5000);
+          // Criar contexto de áudio para gravação WAV
+          this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: this.sampleRate
+          });
+          
+          // Limpar dados anteriores
+          this.micWavData = [];
+          this.sysWavData = [];
+          
+          // Criar nós de processamento para microfone
+          const micSource = this.audioContext.createMediaStreamSource(this.micStream);
+          this.micProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+          
+          this.micProcessor.onaudioprocess = (e) => {
+            if (this.isRecording && !this.isStopping) {
+              const inputData = e.inputBuffer.getChannelData(0);
+              this.micWavData.push(new Float32Array(inputData));
+            }
+          };
+          
+          // Criar nós de processamento para sistema
+          const sysSource = this.audioContext.createMediaStreamSource(this.systemStream);
+          this.sysProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+          
+          this.sysProcessor.onaudioprocess = (e) => {
+            if (this.isRecording && !this.isStopping) {
+              const inputData = e.inputBuffer.getChannelData(0);
+              this.sysWavData.push(new Float32Array(inputData));
+            }
+          };
+          
+          // Conectar os processadores
+          micSource.connect(this.micProcessor);
+          this.micProcessor.connect(this.audioContext.destination);
+          
+          sysSource.connect(this.sysProcessor);
+          this.sysProcessor.connect(this.audioContext.destination);
+          
+          console.log('✅ Processadores de áudio WAV iniciados');
       
           // Timer + status
           this.isRecording = true;
@@ -316,113 +374,254 @@ class AudioAIClient {
           this.stopBtn.disabled = false;
           this.recordModeSelect.disabled = true;
           this.startTimer();
-          this.updateCallStatus('Gravando (mixagem pós-chunk)...');
+          this.updateCallStatus('Gravando (WAV separado - 10s)...');
       
           // Loop de processamento
           this.chunkIndex = 0;
-          this.chunkInterval = setInterval(() => this.processDualChunk(), 5000);
+          this.chunkInterval = setInterval(() => this.processSeparateChunk(), 10000); // 10 segundos
+          console.log('🔄 Sistema de chunks WAV iniciado (10 segundos)');
       
         } catch (err) {
-          console.error('❌ Erro ao iniciar gravação mista:', err);
+          console.error('❌ Erro ao iniciar gravação WAV:', err);
           this.showError('Falha na captura de áudio: ' + err.message);
+          // Limpar recursos em caso de erro
+          this.cleanupStreams();
+          this.resetUI();
         }
       }
     
-      async processDualChunk() {
+      async processSeparateChunk() {
         try {
-          console.log(`📦 Mixando chunk ${this.chunkIndex}`);
+          console.log(`🔄 processSeparateChunk chamado - chunk ${this.chunkIndex}`);
+          
+          // Verificar se a gravação ainda está ativa
+          if (!this.isRecording || this.isStopping) {
+            console.log('⚠️ Gravação parada, cancelando processamento de chunk');
+            return;
+          }
+
+          // Verificar se temos dados WAV
+          if (this.micWavData.length === 0 || this.sysWavData.length === 0) {
+            console.log('⚠️ Dados WAV não disponíveis, aguardando...');
+            return;
+          }
+
+          console.log(`📦 Processando chunk WAV ${this.chunkIndex}`);
+          console.log(`🎤 Mic WAV buffers: ${this.micWavData.length}, Sys WAV buffers: ${this.sysWavData.length}`);
       
-          this.micRecorder.stop();
-          this.sysRecorder.stop();
-      
-          await new Promise(r => setTimeout(r, 500)); // aguardar flush
-      
-          const micBlob = new Blob(this.micChunks, { type: 'audio/webm' });
-          const sysBlob = new Blob(this.sysChunks, { type: 'audio/webm' });
-          this.micChunks = [];
-          this.sysChunks = [];
-      
-          const mixedBlob = await this.mixWebmBlobs(micBlob, sysBlob);
+          // Pegar os últimos 10 segundos de dados (aproximadamente)
+          const chunkDuration = 10; // segundos
+          const samplesPerChunk = this.sampleRate * chunkDuration;
+          console.log(`⏱️ Chunk duration: ${chunkDuration}s, samples per chunk: ${samplesPerChunk}`);
+          
+          // Extrair dados do chunk atual
+          console.log('🔍 Extraindo dados do microfone...');
+          const micChunkData = this.extractWavChunk(this.micWavData, samplesPerChunk);
+          console.log('🔍 Extraindo dados do sistema...');
+          const sysChunkData = this.extractWavChunk(this.sysWavData, samplesPerChunk);
+          
+          if (micChunkData.length === 0 || sysChunkData.length === 0) {
+            console.log('⚠️ Chunk WAV vazio, aguardando mais dados...');
+            return;
+          }
+          
+          console.log(`📊 Mic chunk: ${micChunkData.length} samples, Sys chunk: ${sysChunkData.length} samples`);
+          
+          // Mixar os dados WAV
+          console.log('🎵 Mixando dados WAV...');
+          const mixedWavData = this.mixWavData(micChunkData, sysChunkData);
+          console.log(`🎵 Mixed WAV: ${mixedWavData.length} samples`);
+          
+          // Converter para WAV e depois para blob
+          console.log('📁 Criando blob WAV...');
+          const wavBlob = this.createWavBlob(mixedWavData);
+          console.log(`📁 WAV blob: ${wavBlob.size} bytes`);
       
           // Enviar chunk mixado
-          await this.uploadChunk(mixedBlob, this.chunkIndex);
+          await this.uploadChunk(wavBlob, this.chunkIndex);
           this.chunkIndex++;
       
-          // Reiniciar gravadores
-          const mimeType = this.getBestMimeType();
-          this.micRecorder = new MediaRecorder(this.micStream, { mimeType });
-          this.sysRecorder = new MediaRecorder(this.systemStream, { mimeType });
-          this.micRecorder.ondataavailable = e => e.data.size > 0 && this.micChunks.push(e.data);
-          this.sysRecorder.ondataavailable = e => e.data.size > 0 && this.sysChunks.push(e.data);
-          this.micRecorder.start(5000);
-          this.sysRecorder.start(5000);
-      
         } catch (err) {
-          console.error('Erro ao mixar chunk:', err);
+          console.error('❌ Erro ao processar chunk WAV:', err);
         }
+      }
+      
+      // Função para extrair chunk de dados WAV
+      extractWavChunk(wavDataArray, samplesPerChunk) {
+        console.log(`🔍 Extraindo chunk: ${samplesPerChunk} samples de ${wavDataArray.length} buffers`);
+        
+        if (wavDataArray.length === 0) {
+          console.log('⚠️ Nenhum buffer disponível');
+          return [];
+        }
+        
+        const result = [];
+        let samplesCollected = 0;
+        
+        // Pegar os buffers mais recentes primeiro
+        for (let i = wavDataArray.length - 1; i >= 0 && samplesCollected < samplesPerChunk; i--) {
+          const buffer = wavDataArray[i];
+          const needed = samplesPerChunk - samplesCollected;
+          const toTake = Math.min(needed, buffer.length);
+          
+          // Pegar do final do buffer (dados mais recentes)
+          const start = buffer.length - toTake;
+          
+          // Usar slice para melhor performance
+          const chunk = buffer.slice(start, buffer.length);
+          result.unshift(...chunk);
+          samplesCollected += chunk.length;
+          
+          console.log(`📊 Buffer ${i}: pegou ${chunk.length} samples, total: ${samplesCollected}`);
+        }
+        
+        console.log(`✅ Extraído ${result.length} samples`);
+        return result;
+      }
+      
+      // Função para mixar dados WAV
+      mixWavData(micData, sysData) {
+        const maxLength = Math.max(micData.length, sysData.length);
+        const mixed = new Float32Array(maxLength);
+        
+        for (let i = 0; i < maxLength; i++) {
+          const micSample = i < micData.length ? micData[i] : 0;
+          const sysSample = i < sysData.length ? sysData[i] : 0;
+          
+          // Mixagem simples (soma com normalização)
+          mixed[i] = (micSample + sysSample) * 0.5;
+        }
+        
+        return mixed;
+      }
+      
+      // Função para criar blob WAV
+      createWavBlob(audioData) {
+        const length = audioData.length;
+        const buffer = new ArrayBuffer(44 + length * 2);
+        const view = new DataView(buffer);
+        
+        // WAV header
+        const writeString = (offset, string) => {
+          for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        };
+        
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + length * 2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, this.sampleRate, true);
+        view.setUint32(28, this.sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, length * 2, true);
+        
+        // Converter float32 para int16
+        let offset = 44;
+        for (let i = 0; i < length; i++) {
+          const sample = Math.max(-1, Math.min(1, audioData[i]));
+          view.setInt16(offset, sample * 0x7FFF, true);
+          offset += 2;
+        }
+        
+        return new Blob([buffer], { type: 'audio/wav' });
       }
     
       // Mixagem segura de WebM (sem decodificação manual)
 // Usa elementos de áudio e MediaElementAudioSourceNode
+// 🔊 Solução B — Mixagem por reprodução simultânea (sem decodeAudioData)
 async mixWebmBlobs(micBlob, sysBlob) {
     return new Promise(async (resolve, reject) => {
       try {
-        // Criar contexto de áudio e destino de gravação
+        console.log('🎵 Iniciando mixagem de blobs...');
+        
+        // Verifica se os blobs são válidos
+        if (!micBlob || !sysBlob || micBlob.size === 0 || sysBlob.size === 0) {
+          console.warn('⚠️ Blobs inválidos para mixagem:', {
+            micBlob: micBlob ? micBlob.size : 'null',
+            sysBlob: sysBlob ? sysBlob.size : 'null'
+          });
+          resolve(new Blob([], { type: 'audio/webm' }));
+          return;
+        }
+  
+        console.log('🎵 Criando contexto de áudio...');
+        // Cria o contexto de áudio e destino
         const ctx = new AudioContext({ sampleRate: 48000 });
         const destination = ctx.createMediaStreamDestination();
   
-        // Criar elementos de áudio temporários
+        console.log('🎵 Criando elementos de áudio...');
+        // Cria elementos de áudio temporários para cada blob
         const micAudio = new Audio(URL.createObjectURL(micBlob));
         const sysAudio = new Audio(URL.createObjectURL(sysBlob));
-  
-        // Garantir que possam ser processados no mesmo contexto
         micAudio.crossOrigin = 'anonymous';
         sysAudio.crossOrigin = 'anonymous';
         micAudio.muted = true;
         sysAudio.muted = true;
   
-        // Criar fontes para mixagem
+        console.log('🎵 Criando fontes e ganhos...');
+        // Cria fontes e ganhos relativos
         const micSource = ctx.createMediaElementSource(micAudio);
         const sysSource = ctx.createMediaElementSource(sysAudio);
-  
-        // Criar nodes de ganho (ajuste de volume relativo)
         const micGain = ctx.createGain();
         const sysGain = ctx.createGain();
-        micGain.gain.value = 0.7; // 70% microfone
-        sysGain.gain.value = 0.4; // 40% sistema
+        micGain.gain.value = 0.8; // 80 % microfone
+        sysGain.gain.value = 0.5; // 50 % sistema
   
-        // Conectar ao destino
+        console.log('🎵 Conectando fontes...');
+        // Conecta ambas as fontes ao destino
         micSource.connect(micGain).connect(destination);
         sysSource.connect(sysGain).connect(destination);
   
-        // Criar MediaRecorder da saída combinada
-        const mixedRecorder = new MediaRecorder(destination.stream, { mimeType: 'audio/webm;codecs=opus' });
+        console.log('🎵 Criando MediaRecorder...');
+        // Grava o resultado mixado em tempo real
+        const mixedRecorder = new MediaRecorder(destination.stream, {
+          mimeType: 'audio/webm;codecs=opus'
+        });
         const chunks = [];
   
-        mixedRecorder.ondataavailable = e => e.data.size > 0 && chunks.push(e.data);
+        mixedRecorder.ondataavailable = e => {
+          if (e.data.size > 0) {
+            console.log('🎵 Chunk mixado:', e.data.size, 'bytes');
+            chunks.push(e.data);
+          }
+        };
         mixedRecorder.onstop = () => {
           const mixedBlob = new Blob(chunks, { type: 'audio/webm' });
-          resolve(mixedBlob);
-        };
-  
-        // Iniciar gravação e reprodução simultânea
-        mixedRecorder.start();
-        await Promise.all([
-          micAudio.play().catch(() => {}),
-          sysAudio.play().catch(() => {})
-        ]);
-  
-        // Esperar até o mais longo terminar
-        const longest = Math.max(micAudio.duration || 5, sysAudio.duration || 5) * 1000;
-        setTimeout(() => {
-          mixedRecorder.stop();
+          console.log('🎵 Mixagem concluída:', mixedBlob.size, 'bytes');
           ctx.close();
           URL.revokeObjectURL(micAudio.src);
           URL.revokeObjectURL(sysAudio.src);
+          resolve(mixedBlob);
+        };
+  
+        console.log('🎵 Iniciando gravação e reprodução...');
+        mixedRecorder.start();
+        await Promise.all([
+          micAudio.play().catch((err) => {
+            console.warn('⚠️ Erro ao reproduzir áudio do microfone:', err);
+          }),
+          sysAudio.play().catch((err) => {
+            console.warn('⚠️ Erro ao reproduzir áudio do sistema:', err);
+          })
+        ]);
+  
+        // Espera o mais longo terminar e finaliza
+        const longest = Math.max(micAudio.duration || 5, sysAudio.duration || 5) * 1000;
+        console.log('🎵 Duração estimada:', longest, 'ms');
+        setTimeout(() => {
+          console.log('🎵 Finalizando gravação...');
+          mixedRecorder.stop();
         }, longest + 100);
   
       } catch (err) {
-        console.error('Erro ao mixar WebM:', err);
+        console.error('❌ Erro ao mixar WebM (Solução B):', err);
         reject(err);
       }
     });
@@ -473,6 +672,33 @@ async mixWebmBlobs(micBlob, sysBlob) {
         if (this.gainMonitorInterval) {
             clearInterval(this.gainMonitorInterval);
             this.gainMonitorInterval = null;
+        }
+        
+        // Limpar gravadores do modo "both"
+        if (this.micRecorder) {
+            this.micRecorder = null;
+        }
+        if (this.sysRecorder) {
+            this.sysRecorder = null;
+        }
+        
+        // Limpar processadores WAV
+        if (this.micProcessor) {
+            this.micProcessor.disconnect();
+            this.micProcessor = null;
+        }
+        if (this.sysProcessor) {
+            this.sysProcessor.disconnect();
+            this.sysProcessor = null;
+        }
+        
+        // Limpar dados WAV
+        this.micWavData = [];
+        this.sysWavData = [];
+        
+        // Limpar gravador principal
+        if (this.mediaRecorder) {
+            this.mediaRecorder = null;
         }
         
         if (this.micStream) {
@@ -548,7 +774,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
     }
 
     async stopRecording() {
-        if (!this.isRecording || !this.mediaRecorder) {
+        if (!this.isRecording) {
             return;
         }
 
@@ -557,6 +783,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
         this.stopBtn.disabled = true;
 
         try {
+            // Parar sistema de chunks
             if (this.chunkInterval) {
                 clearInterval(this.chunkInterval);
                 this.chunkInterval = null;
@@ -564,18 +791,32 @@ async mixWebmBlobs(micBlob, sysBlob) {
 
             this.stopTimer();
 
-            if (this.mediaRecorder.state === 'recording') {
-                this.mediaRecorder.stop();
-                
-                await new Promise((resolve) => {
-                    const originalStopHandler = this.mediaRecorder.onstop;
-                    this.mediaRecorder.onstop = () => {
-                        this.processChunk().then(resolve);
-                        if (originalStopHandler) {
-                            this.mediaRecorder.onstop = originalStopHandler;
-                        }
-                    };
-                });
+            // No modo "both", parar os processadores WAV
+            if (this.recordMode === 'both') {
+                if (this.micProcessor) {
+                    this.micProcessor.disconnect();
+                    this.micProcessor = null;
+                }
+                if (this.sysProcessor) {
+                    this.sysProcessor.disconnect();
+                    this.sysProcessor = null;
+                }
+                console.log('✅ Processadores WAV desconectados');
+            } else {
+                // Modos "microphone" e "system"
+                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                    this.mediaRecorder.stop();
+                    
+                    await new Promise((resolve) => {
+                        const originalStopHandler = this.mediaRecorder.onstop;
+                        this.mediaRecorder.onstop = () => {
+                            this.processChunk().then(resolve);
+                            if (originalStopHandler) {
+                                this.mediaRecorder.onstop = originalStopHandler;
+                            }
+                        };
+                    });
+                }
             }
 
             await this.waitForPendingUploads();
@@ -601,6 +842,11 @@ async mixWebmBlobs(micBlob, sysBlob) {
     }
 
     startChunkSystem() {
+        // No modo "both", o sistema de chunks é gerenciado pela função startMixedRecording
+        if (this.recordMode === 'both') {
+            return;
+        }
+        
         this.chunkInterval = setInterval(() => {
             if (this.isRecording && !this.isStopping) {
                 this.processChunkInterval();
@@ -609,6 +855,11 @@ async mixWebmBlobs(micBlob, sysBlob) {
     }
 
     processChunkInterval() {
+        // No modo "both", não usar esta função - usar processDualChunk
+        if (this.recordMode === 'both') {
+            return;
+        }
+
         if (!this.mediaRecorder || this.mediaRecorder.state !== 'recording') {
             console.log('⚠️ MediaRecorder não está gravando');
             return;
@@ -698,6 +949,11 @@ async mixWebmBlobs(micBlob, sysBlob) {
             return;
         }
 
+        // No modo "both", não usar esta função - usar processDualChunk
+        if (this.recordMode === 'both') {
+            return;
+        }
+
         try {
             const mimeType = this.getBestMimeType();
             const stream = this.micStream || this.systemStream || this.mixedStream;
@@ -766,6 +1022,8 @@ async mixWebmBlobs(micBlob, sysBlob) {
     async finalizeSession() {
         try {
             this.updateCallStatus('Processando final...');
+            
+            console.log('🔚 Finalizando sessão:', this.sessionId);
             
             const response = await fetch(`${this.serverUrl}/finalize`, {
                 method: 'POST',
@@ -993,6 +1251,16 @@ async mixWebmBlobs(micBlob, sysBlob) {
         this.chunkIndex = 0;
         this.pendingUploads.clear();
         this.accumulatedTranscript = '';
+        
+        // Limpar gravadores do modo "both"
+        this.micRecorder = null;
+        this.sysRecorder = null;
+        
+        // Limpar processadores WAV
+        this.micProcessor = null;
+        this.sysProcessor = null;
+        this.micWavData = [];
+        this.sysWavData = [];
         
         this.segments = 0;
         this.objections = 0;

@@ -74,7 +74,10 @@ class AudioAIClient {
         this.suggestions = 0;
 
         // URL do servidor
-        this.serverUrl = 'http://localhost:3005';
+        // Detectar se está em produção (Vercel) ou desenvolvimento
+        this.serverUrl = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3005' 
+            : window.location.origin;
 
         this.init();
     }

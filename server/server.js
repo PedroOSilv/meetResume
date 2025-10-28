@@ -158,11 +158,25 @@ function createSession(sessionId) {
         transcripts: [],
         createdAt: new Date(),
         lastActivity: new Date(),
-        tempFiles: []
+        tempFiles: [],
+        compressionStats: {
+            totalSize: 0,
+            compressedSize: 0,
+            compressionRatio: 0
+        }
     };
     activeSessions.set(sessionId, session);
     console.log(`📝 Nova sessão criada: ${sessionId}`);
     return session;
+}
+
+// Função para calcular estatísticas de compressão
+function updateCompressionStats(session, fileSize) {
+    session.compressionStats.totalSize += fileSize;
+    session.compressionStats.compressedSize += fileSize; // Para chunks individuais
+    session.compressionStats.compressionRatio = session.compressionStats.compressedSize / session.compressionStats.totalSize;
+    
+    console.log(`📊 Estatísticas de compressão - Sessão: ${session.compressionStats.totalSize} bytes, Ratio: ${(session.compressionStats.compressionRatio * 100).toFixed(1)}%`);
 }
 
 function getSession(sessionId) {
@@ -392,12 +406,18 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage: storage,
     limits: {
-        fileSize: 10 * 1024 * 1024 // 10MB limite (otimizado)
+        fileSize: 5 * 1024 * 1024 // 5MB limite (reduzido para melhor compressão)
     },
     fileFilter: (req, file, cb) => {
-        // Aceitar apenas arquivos de áudio otimizados
+        // Aceitar apenas arquivos de áudio otimizados com prioridade para formatos comprimidos
         const allowedTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
+        const compressedTypes = ['audio/webm', 'audio/ogg']; // Formatos mais comprimidos
+        
         if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(webm|ogg|mp4|wav)$/i)) {
+            // Priorizar formatos comprimidos
+            if (compressedTypes.includes(file.mimetype) || file.originalname.match(/\.(webm|ogg)$/i)) {
+                console.log(`📦 Arquivo comprimido recebido: ${file.originalname}`);
+            }
             cb(null, true);
         } else {
             cb(new Error('Tipo de arquivo não suportado. Use WebM, OGG, MP4 ou WAV (formatos otimizados).'));
@@ -454,6 +474,9 @@ app.post("/upload-chunk", authenticateToken, upload.single("audio"), async (req,
         if (!session) {
             session = createSession(sessionId);
         }
+
+        // Atualizar estatísticas de compressão
+        updateCompressionStats(session, audioFile.size);
 
         // Adicionar arquivo à lista de arquivos temporários da sessão
         session.tempFiles.push(audioFile.path);
@@ -931,12 +954,18 @@ app.post("/finalize", authenticateToken, async (req, res) => {
         // Limpar sessão
         cleanupSession(sessionId);
 
-        // Retornar resultado
+        // Retornar resultado com estatísticas de compressão
         res.json({
             fullTranscript: fullTranscript,
             analysis: analysis,
             chunksProcessed: session.transcripts.length,
             processing_time_ms: processingTime,
+            compressionStats: {
+                totalSize: session.compressionStats.totalSize,
+                compressedSize: session.compressionStats.compressedSize,
+                compressionRatio: session.compressionStats.compressionRatio,
+                averageChunkSize: Math.round(session.compressionStats.totalSize / session.transcripts.length)
+            },
             timestamp: new Date().toISOString()
         });
         

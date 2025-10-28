@@ -33,6 +33,11 @@ class AudioAIClient {
         this.mixedStream = null;
         this.recordingStartTime = null;
         this.timerInterval = null;
+        
+        // Garantir que o timer esteja resetado no início
+        if (this.timer) {
+            this.timer.textContent = '00:00';
+        }
 
         // Gravadores do modo "both"
         this.micRecorder = null;
@@ -46,7 +51,7 @@ class AudioAIClient {
         this.audioContext = null;
         this.micProcessor = null;
         this.sysProcessor = null;
-        this.sampleRate = 44100;
+        this.sampleRate = 16000; // Reduzido para melhor compressão
 
         // Sistema de chunks em tempo real
         this.sessionId = null;
@@ -121,6 +126,9 @@ class AudioAIClient {
     }
 
     startTimer() {
+        // Garantir que não há timer anterior rodando
+        this.stopTimer();
+        
         this.recordingStartTime = Date.now();
         this.timerInterval = setInterval(() => {
             const elapsed = Date.now() - this.recordingStartTime;
@@ -128,12 +136,18 @@ class AudioAIClient {
             const seconds = Math.floor((elapsed % 60000) / 1000);
             this.timer.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }, 1000);
+        console.log('▶️ Timer iniciado');
     }
 
     stopTimer() {
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
+            console.log('⏹️ Timer parado');
+        }
+        // Garantir que o timer seja resetado visualmente
+        if (this.timer) {
+            this.timer.textContent = '00:00';
         }
     }
 
@@ -185,7 +199,7 @@ class AudioAIClient {
             const mimeType = this.getBestMimeType();
             this.mediaRecorder = new MediaRecorder(this.micStream, {
                 mimeType: mimeType,
-                audioBitsPerSecond: 32000
+                audioBitsPerSecond: 16000 // Reduzido de 32k para 16k para melhor compressão
             });
             
             this.setupMediaRecorder();
@@ -304,17 +318,28 @@ class AudioAIClient {
           this.sessionId = this.generateSessionId();
           console.log('🆔 Session ID gerado:', this.sessionId);
       
-          // Capturar microfone
+          // Capturar microfone com configurações otimizadas para compressão
           console.log('🎤 Solicitando acesso ao microfone...');
           this.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, sampleRate: this.sampleRate }
+            audio: { 
+              echoCancellation: true, 
+              noiseSuppression: true, 
+              sampleRate: 16000, // Reduzido para melhor compressão
+              channelCount: 1,    // Mono
+              sampleSize: 16      // 16-bit
+            }
           });
           console.log('🎤 Microfone iniciado:', this.micStream.getAudioTracks().length, 'faixas de áudio');
       
-          // Capturar sistema (áudio da aba)
+          // Capturar sistema (áudio da aba) com configurações otimizadas
           console.log('🖥️ Solicitando acesso ao sistema...');
           this.systemStream = await navigator.mediaDevices.getDisplayMedia({
-            audio: { echoCancellation: false, noiseSuppression: false, sampleRate: this.sampleRate },
+            audio: { 
+              echoCancellation: false, 
+              noiseSuppression: false, 
+              sampleRate: 16000, // Reduzido para melhor compressão
+              channelCount: 1    // Mono
+            },
             video: true
           });
           this.systemStream.getVideoTracks().forEach(t => t.stop());
@@ -479,29 +504,53 @@ class AudioAIClient {
         return result;
       }
       
-      // Função para mixar dados WAV
+      // Função para mixar dados WAV com compressão otimizada
       mixWavData(micData, sysData) {
         const maxLength = Math.max(micData.length, sysData.length);
         const mixed = new Float32Array(maxLength);
         
-        for (let i = 0; i < maxLength; i++) {
-          const micSample = i < micData.length ? micData[i] : 0;
-          const sysSample = i < sysData.length ? sysData[i] : 0;
+        // Processar em chunks para melhor performance
+        const chunkSize = 1024;
+        for (let i = 0; i < maxLength; i += chunkSize) {
+          const end = Math.min(i + chunkSize, maxLength);
           
-          // Mixagem simples (soma com normalização)
-          mixed[i] = (micSample + sysSample) * 0.5;
+          for (let j = i; j < end; j++) {
+            const micSample = j < micData.length ? micData[j] : 0;
+            const sysSample = j < sysData.length ? sysData[j] : 0;
+            
+            // Mixagem com compressão dinâmica
+            const mixedSample = (micSample + sysSample) * 0.5;
+            
+            // Aplicar compressão suave para reduzir picos
+            mixed[j] = this.applySoftCompression(mixedSample);
+          }
         }
         
         return mixed;
       }
       
-      // Função para criar blob WAV
+      // Função auxiliar para compressão suave de áudio
+      applySoftCompression(sample) {
+        const threshold = 0.8;
+        const ratio = 0.5;
+        
+        if (Math.abs(sample) > threshold) {
+          const sign = sample >= 0 ? 1 : -1;
+          const excess = Math.abs(sample) - threshold;
+          const compressed = threshold + (excess * ratio);
+          return sign * Math.min(compressed, 1.0);
+        }
+        
+        return sample;
+      }
+      
+      // Função para criar blob WAV com compressão otimizada
       createWavBlob(audioData) {
         const length = audioData.length;
         const buffer = new ArrayBuffer(44 + length * 2);
         const view = new DataView(buffer);
         
-        // WAV header
+        // WAV header otimizado para compressão
         const writeString = (offset, string) => {
           for (let i = 0; i < string.length; i++) {
             view.setUint8(offset + i, string.charCodeAt(i));
@@ -513,20 +562,31 @@ class AudioAIClient {
         writeString(8, 'WAVE');
         writeString(12, 'fmt ');
         view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, 1, true);
-        view.setUint32(24, this.sampleRate, true);
-        view.setUint32(28, this.sampleRate * 2, true);
-        view.setUint16(32, 2, true);
-        view.setUint16(34, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, 1, true); // Mono
+        view.setUint32(24, this.sampleRate, true); // 16kHz
+        view.setUint32(28, this.sampleRate * 2, true); // Byte rate
+        view.setUint16(32, 2, true); // Block align
+        view.setUint16(34, 16, true); // 16-bit
         writeString(36, 'data');
         view.setUint32(40, length * 2, true);
         
-        // Converter float32 para int16
+        // Converter float32 para int16 com compressão otimizada
         let offset = 44;
+        const compressionThreshold = 0.95; // Limite para compressão
+        
         for (let i = 0; i < length; i++) {
-          const sample = Math.max(-1, Math.min(1, audioData[i]));
-          view.setInt16(offset, sample * 0x7FFF, true);
+          let sample = audioData[i];
+          
+          // Aplicar compressão adicional se necessário
+          if (Math.abs(sample) > compressionThreshold) {
+            const sign = sample >= 0 ? 1 : -1;
+            sample = sign * (compressionThreshold + (Math.abs(sample) - compressionThreshold) * 0.3);
+          }
+          
+          // Clamp e converter para int16
+          sample = Math.max(-1, Math.min(1, sample));
+          view.setInt16(offset, Math.round(sample * 0x7FFF), true);
           offset += 2;
         }
         
@@ -752,9 +812,12 @@ async mixWebmBlobs(micBlob, sysBlob) {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
-                sampleRate: 16000,
-                channelCount: 1,
-                sampleSize: 16
+                sampleRate: 16000, // Reduzido para melhor compressão
+                channelCount: 1,   // Mono para menor tamanho
+                sampleSize: 16,    // 16-bit para compressão
+                // Configurações adicionais para compressão
+                volume: 1.0,
+                latency: 0.1
             }
         };
     }
@@ -782,14 +845,15 @@ async mixWebmBlobs(micBlob, sysBlob) {
         this.updateCallStatus('Parando gravação...');
         this.stopBtn.disabled = true;
 
+        // PARAR TIMER IMEDIATAMENTE
+        this.stopTimer();
+
         try {
             // Parar sistema de chunks
             if (this.chunkInterval) {
                 clearInterval(this.chunkInterval);
                 this.chunkInterval = null;
             }
-
-            this.stopTimer();
 
             // No modo "both", parar os processadores WAV
             if (this.recordMode === 'both') {

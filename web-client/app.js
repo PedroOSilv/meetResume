@@ -1206,8 +1206,17 @@ async mixWebmBlobs(micBlob, sysBlob) {
             <div class="message-speaker">${speaker}</div>
             <div class="message-bubble">
                 <div class="message-text">${text}</div>
+                <button class="copy-message-btn" title="Copiar mensagem">
+                    <span class="copy-icon"></span>
+                </button>
             </div>
         `;
+        
+        // Adicionar event listener para o botão de copiar
+        const copyBtn = messageDiv.querySelector('.copy-message-btn');
+        copyBtn.addEventListener('click', () => {
+            this.copyToClipboard(text);
+        });
         
         this.transcriptArea.appendChild(messageDiv);
         this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;

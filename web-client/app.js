@@ -374,12 +374,12 @@ class AudioAIClient {
           this.stopBtn.disabled = false;
           this.recordModeSelect.disabled = true;
           this.startTimer();
-          this.updateCallStatus('Gravando (WAV separado - 10s)...');
+          this.updateCallStatus('Gravando (WAV separado - 5s)...');
       
           // Loop de processamento
           this.chunkIndex = 0;
-          this.chunkInterval = setInterval(() => this.processSeparateChunk(), 10000); // 10 segundos
-          console.log('🔄 Sistema de chunks WAV iniciado (10 segundos)');
+          this.chunkInterval = setInterval(() => this.processSeparateChunk(), 5000); // 5 segundos
+          console.log('🔄 Sistema de chunks WAV iniciado (5 segundos)');
       
         } catch (err) {
           console.error('❌ Erro ao iniciar gravação WAV:', err);
@@ -409,8 +409,8 @@ class AudioAIClient {
           console.log(`📦 Processando chunk WAV ${this.chunkIndex}`);
           console.log(`🎤 Mic WAV buffers: ${this.micWavData.length}, Sys WAV buffers: ${this.sysWavData.length}`);
       
-          // Pegar os últimos 10 segundos de dados (aproximadamente)
-          const chunkDuration = 10; // segundos
+          // Pegar os últimos 5 segundos de dados (aproximadamente)
+          const chunkDuration = 5; // segundos
           const samplesPerChunk = this.sampleRate * chunkDuration;
           console.log(`⏱️ Chunk duration: ${chunkDuration}s, samples per chunk: ${samplesPerChunk}`);
           

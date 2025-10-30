@@ -26,6 +26,8 @@ class AudioAIClient {
         this.logoutBtn = document.getElementById('logoutBtn');
         this.clearChatBtn = document.getElementById('clearChatBtn');
         this.clearTranscriptBtn = document.getElementById('clearTranscriptBtn');
+        this.notificationsToggle = document.getElementById('notificationsToggle');
+        this.notificationIcon = document.getElementById('notificationIcon');
 
         // Estado da gravação
         this.isRecording = false;
@@ -76,6 +78,11 @@ class AudioAIClient {
         this.segments = 0;
         this.objections = 0;
         this.suggestions = 0;
+        
+        // Sistema de objeções
+        this.objectionsHistory = [];
+        this.lastObjectionTime = 0;
+        this.notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false'; // true por padrão
 
         // URL do servidor
         // Detectar se está em produção (Vercel) ou desenvolvimento
@@ -97,9 +104,44 @@ class AudioAIClient {
         this.logoutBtn.addEventListener('click', () => this.logout());
         this.clearChatBtn.addEventListener('click', () => this.clearChat());
         this.clearTranscriptBtn.addEventListener('click', () => this.clearTranscript());
+        
+        // Event listener para toggle de notificações
+        if (this.notificationsToggle) {
+            // Configurar estado inicial do toggle baseado no localStorage
+            this.notificationsToggle.checked = this.notificationsEnabled;
+            this.updateNotificationIcon();
+            
+            this.notificationsToggle.addEventListener('change', async (e) => {
+                const enabled = e.target.checked;
+                this.toggleNotifications(enabled);
+                this.updateNotificationIcon();
+                
+                // Se habilitando, solicitar permissão imediatamente
+                if (enabled) {
+                    const granted = await this.requestNotificationPermission();
+                    if (!granted) {
+                        console.warn('⚠️ Permissão de notificações não concedida');
+                    }
+                }
+            });
+        }
+        
+        // Solicitar permissão de notificações se estiver habilitada
+        if (this.notificationsEnabled && 'Notification' in window) {
+            if (Notification.permission === 'default') {
+                console.log('📢 Solicitando permissão de notificações...');
+                this.requestNotificationPermission();
+            }
+        }
 
         // Verificar suporte do navegador
         this.checkBrowserSupport();
+    }
+    
+    updateNotificationIcon() {
+        if (this.notificationIcon) {
+            this.notificationIcon.textContent = this.notificationsEnabled ? '🔔' : '🔕';
+        }
     }
 
     checkBrowserSupport() {
@@ -171,6 +213,12 @@ class AudioAIClient {
             this.pendingUploads.clear();
             this.accumulatedTranscript = '';
             this.isStopping = false;
+            this.objectionsHistory = []; // Limpar histórico ao iniciar nova gravação
+            
+            // Solicitar permissão de notificações
+            if (this.notificationsEnabled) {
+                await this.requestNotificationPermission();
+            }
             
             if (this.recordMode === 'microphone') {
                 await this.startMicrophoneRecording();
@@ -191,7 +239,8 @@ class AudioAIClient {
             this.assistantService.startPolling(
                 (objection) => this.addObjectionMessage(objection),
                 (error) => console.error('Erro no assistente:', error),
-                () => this.getRecentTranscript() // Callback para obter transcrição recente
+                () => this.getRecentTranscript(), // Callback para obter transcrição recente
+                () => this.getPreviousObjections() // Callback para obter objeções anteriores
             );
             
             // No modo "both", o sistema de chunks é gerenciado pela função startMixedRecording
@@ -418,12 +467,12 @@ class AudioAIClient {
           this.stopBtn.disabled = false;
           this.recordModeSelect.disabled = true;
           this.startTimer();
-          this.updateCallStatus('Gravando (WAV separado - 5s)...');
+          this.updateCallStatus('Gravando (WAV separado - 2s)...');
       
           // Loop de processamento
           this.chunkIndex = 0;
-          this.chunkInterval = setInterval(() => this.processSeparateChunk(), 5000); // 5 segundos
-          console.log('🔄 Sistema de chunks WAV iniciado (5 segundos)');
+          this.chunkInterval = setInterval(() => this.processSeparateChunk(), 2000); // 2 segundos
+          console.log('🔄 Sistema de chunks WAV iniciado (2 segundos)');
       
         } catch (err) {
           console.error('❌ Erro ao iniciar gravação WAV:', err);
@@ -453,8 +502,8 @@ class AudioAIClient {
           console.log(`📦 Processando chunk WAV ${this.chunkIndex}`);
           console.log(`🎤 Mic WAV buffers: ${this.micWavData.length}, Sys WAV buffers: ${this.sysWavData.length}`);
       
-          // Pegar os últimos 5 segundos de dados (aproximadamente)
-          const chunkDuration = 5; // segundos
+          // Pegar os últimos 2 segundos de dados (aproximadamente)
+          const chunkDuration = 2; // segundos
           const samplesPerChunk = this.sampleRate * chunkDuration;
           console.log(`⏱️ Chunk duration: ${chunkDuration}s, samples per chunk: ${samplesPerChunk}`);
           
@@ -1072,23 +1121,69 @@ async mixWebmBlobs(micBlob, sysBlob) {
         this.clearEmptyStates();
         
         let transcriptElement = document.getElementById('realtime-transcript');
+        let messageTextElement;
+        
         if (!transcriptElement) {
+            // Criar elemento pela primeira vez
             transcriptElement = document.createElement('div');
             transcriptElement.id = 'realtime-transcript';
             transcriptElement.className = 'message lead';
+            
+            transcriptElement.innerHTML = `
+                <div class="message-speaker">Transcrição (Tempo Real)</div>
+                <div class="message-bubble">
+                    <div class="message-text"></div>
+                </div>
+            `;
+            
             this.transcriptArea.appendChild(transcriptElement);
+            messageTextElement = transcriptElement.querySelector('.message-text');
+            
+            // Guardar referência do texto atual
+            transcriptElement.dataset.currentText = '';
+        } else {
+            messageTextElement = transcriptElement.querySelector('.message-text');
         }
 
-        const displayText = this.accumulatedTranscript || 'Aguardando transcrição...';
+        // Pegar apenas o novo texto que foi adicionado
+        const previousText = transcriptElement.dataset.currentText || '';
+        const currentText = this.accumulatedTranscript || '';
         
-        transcriptElement.innerHTML = `
-            <div class="message-speaker">Transcrição (Tempo Real) - ${this.chunkIndex} chunks</div>
-            <div class="message-bubble">
-                <div class="message-text">${displayText}</div>
-            </div>
-        `;
-
-        this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+        if (currentText.length > previousText.length) {
+            const newText = currentText.substring(previousText.length).trim();
+            
+            if (newText) {
+                // Adicionar apenas as novas palavras com animação
+                const newWords = newText.split(' ').filter(w => w.trim());
+                
+                newWords.forEach((word, index) => {
+                    setTimeout(() => {
+                        // Adicionar espaço antes da palavra se não for o primeiro texto
+                        if (messageTextElement.textContent.length > 0) {
+                            messageTextElement.appendChild(document.createTextNode(' '));
+                        }
+                        
+                        const wordSpan = document.createElement('span');
+                        wordSpan.textContent = word;
+                        wordSpan.style.opacity = '0';
+                        wordSpan.style.display = 'inline';
+                        wordSpan.style.transition = 'opacity 0.2s ease';
+                        
+                        messageTextElement.appendChild(wordSpan);
+                        
+                        // Animar entrada
+                        requestAnimationFrame(() => {
+                            wordSpan.style.opacity = '1';
+                        });
+                        
+                        this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+                    }, index * 150); // 150ms entre cada palavra (velocidade de digitação)
+                });
+            }
+            
+            // Atualizar texto atual guardado
+            transcriptElement.dataset.currentText = currentText;
+        }
     }
 
     async waitForPendingUploads() {
@@ -1205,7 +1300,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
         messageDiv.innerHTML = `
             <div class="message-speaker">${speaker}</div>
             <div class="message-bubble">
-                <div class="message-text">${text}</div>
+                <div class="message-text"></div>
                 <button class="copy-message-btn" title="Copiar mensagem">
                     <span class="copy-icon"></span>
                 </button>
@@ -1219,7 +1314,104 @@ async mixWebmBlobs(micBlob, sysBlob) {
         });
         
         this.transcriptArea.appendChild(messageDiv);
+        
+        // Não animar - a animação agora é feita apenas na transcrição em tempo real
+        messageDiv.querySelector('.message-text').textContent = text;
+        
         this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+    }
+    
+    animateTextWordByWord(element, text, delayMs = 150) {
+        // Limpar conteúdo anterior
+        element.textContent = '';
+        
+        // Dividir texto em palavras
+        const words = text.split(' ').filter(w => w.trim());
+        let currentIndex = 0;
+        
+        // Função para adicionar próxima palavra
+        const addNextWord = () => {
+            if (currentIndex < words.length) {
+                // Adicionar palavra com espaço
+                const wordSpan = document.createElement('span');
+                wordSpan.textContent = words[currentIndex];
+                wordSpan.style.opacity = '0';
+                wordSpan.style.display = 'inline';
+                wordSpan.style.transition = 'opacity 0.2s ease';
+                
+                element.appendChild(wordSpan);
+                
+                // Adicionar espaço após a palavra (exceto na última)
+                if (currentIndex < words.length - 1) {
+                    element.appendChild(document.createTextNode(' '));
+                }
+                
+                // Animar entrada da palavra (apenas fade)
+                requestAnimationFrame(() => {
+                    wordSpan.style.opacity = '1';
+                });
+                
+                // Scroll suave
+                this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+                
+                currentIndex++;
+                
+                // Agendar próxima palavra
+                setTimeout(addNextWord, delayMs);
+            }
+        };
+        
+        // Iniciar animação
+        addNextWord();
+    }
+    
+    animateHTMLContent(element, htmlContent, delayMs = 150) {
+        // Limpar conteúdo anterior
+        element.innerHTML = '';
+        
+        // Criar um elemento temporário para extrair o texto do HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        const fullText = tempDiv.textContent || tempDiv.innerText;
+        
+        // Dividir em palavras
+        const words = fullText.split(' ').filter(w => w.trim());
+        let currentIndex = 0;
+        
+        // Função para adicionar próxima palavra
+        const addNextWord = () => {
+            if (currentIndex < words.length) {
+                // Adicionar espaço antes da palavra se não for a primeira
+                if (currentIndex > 0) {
+                    element.appendChild(document.createTextNode(' '));
+                }
+                
+                // Criar span para a palavra
+                const wordSpan = document.createElement('span');
+                wordSpan.textContent = words[currentIndex];
+                wordSpan.style.opacity = '0';
+                wordSpan.style.display = 'inline';
+                wordSpan.style.transition = 'opacity 0.2s ease';
+                
+                element.appendChild(wordSpan);
+                
+                // Animar entrada
+                requestAnimationFrame(() => {
+                    wordSpan.style.opacity = '1';
+                });
+                
+                // Scroll suave
+                this.suggestionsArea.scrollTop = this.suggestionsArea.scrollHeight;
+                
+                currentIndex++;
+                
+                // Agendar próxima palavra
+                setTimeout(addNextWord, delayMs);
+            }
+        };
+        
+        // Iniciar animação
+        addNextWord();
     }
 
     addSuggestion(text) {
@@ -1249,6 +1441,28 @@ async mixWebmBlobs(micBlob, sysBlob) {
     }
 
     addObjectionMessage(text) {
+        // Verificar se resposta é "0" ou vazia
+        if (!text || text.trim() === '' || text.trim() === '0') {
+            console.log('ℹ️ Nenhuma objeção relevante (resposta vazia ou "0")');
+            return;
+        }
+        
+        // Debounce de 10 segundos - verificar se é muito recente
+        const now = Date.now();
+        if (now - this.lastObjectionTime < 10000) {
+            // Verificar similaridade com última objeção (70%)
+            if (this.objectionsHistory.length > 0) {
+                const lastObjection = this.objectionsHistory[this.objectionsHistory.length - 1];
+                const similarity = this.calculateSimilarity(text, lastObjection);
+                if (similarity > 0.7) {
+                    console.log('⚠️ Objeção muito similar à anterior, ignorando (debounce)');
+                    return;
+                }
+            }
+        }
+        
+        this.lastObjectionTime = now;
+        
         // Remover objeção anterior se existir
         const existingObjection = this.suggestionsArea.querySelector('.objection-card');
         if (existingObjection) {
@@ -1258,8 +1472,6 @@ async mixWebmBlobs(micBlob, sysBlob) {
         const objectionDiv = document.createElement('div');
         objectionDiv.className = 'suggestion-card objection-card active';
         
-        const formattedText = this.formatResumeText(text);
-        
         objectionDiv.innerHTML = `
             <div class="suggestion-header">
                 <span>Objeção IA</span>
@@ -1267,7 +1479,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
                     Copy
                 </button>
             </div>
-            <div class="suggestion-text">${formattedText}</div>
+            <div class="suggestion-text"></div>
         `;
         
         const copyBtn = objectionDiv.querySelector('.copy-icon-btn');
@@ -1276,7 +1488,16 @@ async mixWebmBlobs(micBlob, sysBlob) {
         });
         
         this.suggestionsArea.appendChild(objectionDiv);
+        
+        // Aplicar animação palavra por palavra no texto da objeção
+        const suggestionTextElement = objectionDiv.querySelector('.suggestion-text');
+        const formattedText = this.formatResumeText(text);
+        this.animateHTMLContent(suggestionTextElement, formattedText);
+        
         this.suggestionsArea.scrollTop = this.suggestionsArea.scrollHeight;
+        
+        // Adicionar ao histórico de objeções
+        this.objectionsHistory.push(text);
         
         // Incrementar contador de objeções apenas na primeira vez
         if (!existingObjection) {
@@ -1284,7 +1505,24 @@ async mixWebmBlobs(micBlob, sysBlob) {
             this.updateMetrics();
         }
         
+        // Exibir notificação do navegador
+        this.showBrowserNotification('Nova objeção detectada!', text);
+        
         console.log('✅ Objeção atualizada:', text.substring(0, 50) + '...');
+    }
+    
+    calculateSimilarity(str1, str2) {
+        // Calcular similaridade simples baseada em palavras comuns
+        const words1 = str1.toLowerCase().split(/\s+/);
+        const words2 = str2.toLowerCase().split(/\s+/);
+        
+        const set1 = new Set(words1);
+        const set2 = new Set(words2);
+        
+        const intersection = new Set([...set1].filter(x => set2.has(x)));
+        const union = new Set([...set1, ...set2]);
+        
+        return intersection.size / union.size;
     }
 
     clearChat() {
@@ -1334,13 +1572,100 @@ async mixWebmBlobs(micBlob, sysBlob) {
             return '';
         }
         
-        // Extrair últimos 60 segundos de transcrição
-        // Assumindo ~150 palavras por minuto = ~2.5 palavras por segundo
-        // 60 segundos = ~150 palavras
+        // Extrair últimas 40 palavras da transcrição
         const words = this.accumulatedTranscript.trim().split(/\s+/);
-        const recentWords = words.slice(-150); // Últimas 150 palavras
+        const recentWords = words.slice(-40); // Últimas 40 palavras
         
         return recentWords.join(' ');
+    }
+    
+    getPreviousObjections() {
+        // Retornar últimas 5 objeções para evitar repetição
+        return this.objectionsHistory.slice(-5);
+    }
+
+    async requestNotificationPermission() {
+        // Verificar se notificações estão suportadas
+        if (!('Notification' in window)) {
+            console.warn('⚠️ Este navegador não suporta notificações');
+            return false;
+        }
+        
+        // Verificar se já tem permissão
+        if (Notification.permission === 'granted') {
+            console.log('✅ Permissão de notificações já concedida');
+            return true;
+        }
+        
+        // Solicitar permissão
+        if (Notification.permission !== 'denied') {
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                console.log('✅ Permissão de notificações concedida');
+                return true;
+            }
+        }
+        
+        console.log('❌ Permissão de notificações negada');
+        return false;
+    }
+    
+    showBrowserNotification(title, body) {
+        console.log('🔔 showBrowserNotification chamada:', { title, bodyLength: body?.length });
+        console.log('   - notificationsEnabled:', this.notificationsEnabled);
+        console.log('   - Notification in window:', 'Notification' in window);
+        console.log('   - Notification.permission:', Notification?.permission);
+        
+        // Verificar se notificações estão habilitadas pelo usuário
+        if (!this.notificationsEnabled) {
+            console.log('🔕 Notificações desabilitadas pelo usuário');
+            return;
+        }
+        
+        // Verificar se tem permissão
+        if (!('Notification' in window)) {
+            console.log('⚠️ Notification API não disponível');
+            return;
+        }
+        
+        if (Notification.permission !== 'granted') {
+            console.log('⚠️ Permissão não concedida:', Notification.permission);
+            return;
+        }
+        
+        try {
+            // Limitar o tamanho do body
+            const truncatedBody = body.length > 100 ? body.substring(0, 100) + '...' : body;
+            
+            console.log('🔔 Criando notificação...');
+            const notification = new Notification(title, {
+                body: truncatedBody,
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: 'objection', // Substituir notificações anteriores com mesma tag
+                requireInteraction: false,
+                silent: false
+            });
+            
+            // Auto-fechar após 5 segundos
+            setTimeout(() => notification.close(), 5000);
+            
+            // Focar na janela ao clicar na notificação
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+            
+            console.log('✅ Notificação criada com sucesso:', title);
+        } catch (error) {
+            console.error('❌ Erro ao exibir notificação:', error);
+        }
+    }
+    
+    toggleNotifications(enabled) {
+        this.notificationsEnabled = enabled;
+        localStorage.setItem('notificationsEnabled', enabled);
+        console.log(`🔔 Notificações ${enabled ? 'habilitadas' : 'desabilitadas'}`);
     }
 
     formatResumeText(text) {

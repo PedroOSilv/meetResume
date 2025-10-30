@@ -13,12 +13,13 @@ class AssistantService {
     }
 
     /**
-     * Inicia o polling de objeções a cada 10 segundos
+     * Inicia o polling de objeções a cada 5 segundos
      * @param {Function} onObjection - Callback chamado quando objeção é recebida
      * @param {Function} onError - Callback chamado em caso de erro
      * @param {Function} getTranscript - Callback para obter transcrição recente
+     * @param {Function} getPreviousObjections - Callback para obter objeções anteriores
      */
-    startPolling(onObjection, onError, getTranscript) {
+    startPolling(onObjection, onError, getTranscript, getPreviousObjections) {
         if (this.isPolling) {
             console.warn('⚠️ Polling já está ativo');
             return;
@@ -27,17 +28,19 @@ class AssistantService {
         this.onObjectionCallback = onObjection;
         this.onErrorCallback = onError;
         this.getTranscriptCallback = getTranscript;
+        this.getPreviousObjectionsCallback = getPreviousObjections;
         this.isPolling = true;
+        this.lastTranscript = '';
 
-        console.log('🤖 Iniciando polling de objeções a cada 15 segundos');
+        console.log('🤖 Iniciando polling de objeções a cada 5 segundos');
         
         // Primeira requisição imediata
         this.requestObjection();
 
-        // Configurar polling a cada 15 segundos
+        // Configurar polling a cada 5 segundos
         this.pollingInterval = setInterval(() => {
             this.requestObjection();
-        }, 15000);
+        }, 5000);
     }
 
     /**
@@ -68,6 +71,17 @@ class AssistantService {
             return;
         }
 
+        // Pausar polling se transcrição não mudou (economia de API)
+        if (transcript === this.lastTranscript) {
+            console.log('⏸️ Transcrição não mudou, pulando requisição');
+            return;
+        }
+        
+        this.lastTranscript = transcript;
+
+        // Obter objeções anteriores para evitar repetição
+        const previousObjections = this.getPreviousObjectionsCallback ? this.getPreviousObjectionsCallback() : [];
+
         try {
             console.log('🤖 Enviando transcrição para assistente...');
             
@@ -77,9 +91,12 @@ class AssistantService {
                     ...this.authHeaders,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ transcript }),
-                // Timeout de 12 segundos para caber no intervalo de 15s
-                signal: AbortSignal.timeout(12000)
+                body: JSON.stringify({ 
+                    transcript,
+                    previousObjections 
+                }),
+                // Timeout de 10 segundos para dar tempo ao Assistant API processar
+                signal: AbortSignal.timeout(10000)
             });
 
             if (!response.ok) {
@@ -88,7 +105,8 @@ class AssistantService {
 
             const result = await response.json();
             
-            if (result.objection && result.objection.trim()) {
+            // Verificar se resposta é "0" (sem objeção) ou vazia
+            if (result.objection && result.objection.trim() && result.objection !== '0') {
                 console.log('✅ Objeção recebida do assistente');
                 if (this.onObjectionCallback) {
                     this.onObjectionCallback(result.objection);

@@ -1009,7 +1009,7 @@ app.use((error, req, res, next) => {
 // Endpoint para assistente de objeções
 app.post("/api/assistant/objection", async (req, res) => {
     try {
-        const { transcript } = req.body;
+        const { transcript, previousObjections = [] } = req.body;
         
         if (!transcript || !transcript.trim()) {
             return res.status(400).json({
@@ -1018,54 +1018,57 @@ app.post("/api/assistant/objection", async (req, res) => {
         }
 
         console.log("🤖 Processando objeção para transcrição:", transcript.substring(0, 100) + "...");
+        if (previousObjections.length > 0) {
+            console.log(`📋 Histórico: ${previousObjections.length} objeções anteriores`);
+        }
 
-        // Criar thread para o assistente
-        const thread = await openai.beta.threads.create();
+        // Construir prompt do sistema
+        let systemPrompt = `Você é um assistente de vendas que identifica objeções potenciais do cliente baseado na transcrição da conversa.
+
+Sua tarefa:
+1. Analise a transcrição fornecida
+2. Identifique se há uma objeção clara ou potencial do cliente
+3. Se houver uma objeção relevante, forneça uma resposta estruturada e útil
+4. Se NÃO houver objeção, responda APENAS com "0" (zero)
+
+Formato da resposta quando há objeção:
+- Seja direto e objetivo
+- Foque na objeção específica
+- Forneça contexto de vendas`;
+
+        // Construir mensagem do usuário
+        let userMessage = `Transcrição recente: ${transcript}`;
         
-        // Enviar mensagem para o assistente
-        await openai.beta.threads.messages.create(thread.id, {
-            role: "user",
-            content: `Analise esta transcrição e sugira uma objeção relevante para o contexto de vendas. Transcrição: ${transcript}`
-        });
-
-        // Executar o assistente
-        const run = await openai.beta.threads.runs.create(thread.id, {
-            assistant_id: "asst_R9q8LsRLzlIt8EkNiTrGB3WL"
-        });
-
-        // Aguardar conclusão do run
-        let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-        let attempts = 0;
-        const maxAttempts = 20; // 20 tentativas = ~20 segundos máximo
-
-        while (runStatus.status !== "completed" && runStatus.status !== "failed" && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Aguardar 1 segundo
-            runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-            attempts++;
-        }
-
-        if (runStatus.status === "failed") {
-            throw new Error(`Assistente falhou: ${runStatus.last_error?.message || 'Erro desconhecido'}`);
-        }
-
-        if (attempts >= maxAttempts) {
-            throw new Error("Timeout: Assistente demorou muito para responder");
-        }
-
-        // Buscar mensagens do assistente
-        const messages = await openai.beta.threads.messages.list(thread.id);
-        const assistantMessage = messages.data.find(msg => msg.role === "assistant");
-        
-        if (!assistantMessage) {
-            return res.json({
-                objection: null,
-                message: "Nenhuma objeção relevante encontrada"
+        // Adicionar histórico de objeções se existir (últimas 5)
+        if (previousObjections.length > 0) {
+            const recentObjections = previousObjections.slice(-5);
+            userMessage += `\n\n⚠️ IMPORTANTE: As seguintes objeções já foram mencionadas. NÃO as repita:\n`;
+            recentObjections.forEach((obj, idx) => {
+                userMessage += `${idx + 1}. ${obj.substring(0, 80)}...\n`;
             });
+            userMessage += `\nSe não houver uma objeção NOVA e DIFERENTE das anteriores, responda apenas com "0".`;
         }
 
-        const objection = assistantMessage.content[0]?.text?.value || null;
+        // Usar Chat Completions API (muito mais rápido que Assistant API)
+        const chatResponse = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt
+                },
+                {
+                    role: "user",
+                    content: userMessage
+                }
+            ],
+            max_tokens: 300,
+            temperature: 0.7
+        });
 
-        console.log("✅ Objeção gerada pelo assistente");
+        const objection = chatResponse.choices[0]?.message?.content?.trim() || null;
+
+        console.log("✅ Objeção gerada:", objection ? objection.substring(0, 50) + "..." : "nenhuma");
 
         res.json({
             objection: objection,

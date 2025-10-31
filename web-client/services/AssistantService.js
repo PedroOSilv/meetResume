@@ -95,8 +95,8 @@ class AssistantService {
                     transcript,
                     previousObjections 
                 }),
-                // Timeout de 10 segundos para dar tempo ao Assistant API processar
-                signal: AbortSignal.timeout(10000)
+                // Timeout de 70 segundos para dar tempo ao Assistant API processar
+                signal: AbortSignal.timeout(70000)
             });
 
             if (!response.ok) {

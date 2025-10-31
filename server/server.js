@@ -14,17 +14,25 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 // Importar Supabase apenas se as variáveis estiverem configuradas
-let supabase, checkAuthTable, createAdminUser;
+let supabase, checkAuthTable, createAdminUser, saveSession, loadSession, listSessions, deleteSession;
 try {
     const supabaseModule = await import("./supabase.js");
     supabase = supabaseModule.supabase;
     checkAuthTable = supabaseModule.checkAuthTable;
     createAdminUser = supabaseModule.createAdminUser;
+    saveSession = supabaseModule.saveSession;
+    loadSession = supabaseModule.loadSession;
+    listSessions = supabaseModule.listSessions;
+    deleteSession = supabaseModule.deleteSession;
 } catch (error) {
     console.log("⚠️  Supabase não configurado, usando modo desenvolvimento");
     // Mock functions para desenvolvimento
     checkAuthTable = async () => false;
     createAdminUser = async () => true;
+    saveSession = async () => ({ success: false, error: 'Supabase not configured' });
+    loadSession = async () => ({ success: false, error: 'Supabase not configured' });
+    listSessions = async () => ({ success: false, error: 'Supabase not configured' });
+    deleteSession = async () => ({ success: false, error: 'Supabase not configured' });
 }
 
 // Carregar variáveis de ambiente
@@ -707,28 +715,55 @@ app.post("/upload", authenticateToken, upload.single("audio"), async (req, res) 
                 transcription = transcriptionResponse.text;
                 console.log(`📝 Transcrição: "${transcription}"`);
 
-                console.log("🤖 Processando com ChatGPT...");
+                console.log("🤖 Processando com Assistants API...");
                 
-                // Processar transcrição com ChatGPT com retry
-                const chatResponse = await retryOpenAI(async () => {
-                    return await openai.chat.completions.create({
-                        model: "gpt-4o-mini",
-                        messages: [
-                            {
-                                role: "system",
-                                content: CHATGPT_PROMPT
-                            },
-                            {
-                                role: "user",
-                                content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
-                            }
-                        ],
-                        max_tokens: 1000,
-                        temperature: 0.7
-                    });
+                // Processar transcrição com Assistants API
+                const assistantId = "asst_d648Fv2xAGmEvb14F4LGU2mz";
+                
+                // Criar thread
+                const thread = await openai.beta.threads.create();
+                
+                // Adicionar mensagem à thread
+                await openai.beta.threads.messages.create(thread.id, {
+                    role: "user",
+                    content: `Analise a seguinte transcrição de áudio:\n\n${transcription}`
                 });
                 
-                analysis = chatResponse.choices[0].message.content;
+                // Executar run do assistente
+                const run = await openai.beta.threads.runs.create(thread.id, {
+                    assistant_id: assistantId
+                });
+                
+                // Aguardar conclusão do run
+                let runStatus = run.status;
+                let attempts = 0;
+                const maxAttempts = 30; // 30 tentativas com 2s = 60s max
+                
+                while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
+                    
+                    const runCheck = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+                    runStatus = runCheck.status;
+                    attempts++;
+                    
+                    console.log(`🔄 Status do run: ${runStatus} (tentativa ${attempts}/${maxAttempts})`);
+                }
+                
+                if (runStatus !== 'completed') {
+                    throw new Error(`Run falhou com status: ${runStatus}`);
+                }
+                
+                // Obter mensagens da thread
+                const messages = await openai.beta.threads.messages.list(thread.id);
+                
+                // Encontrar a mensagem mais recente do assistente
+                const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
+                
+                if (!assistantMessage || !assistantMessage.content[0]) {
+                    throw new Error('Nenhuma resposta do assistente');
+                }
+                
+                analysis = assistantMessage.content[0].text.value.trim();
                 
             } catch (openaiError) {
                 console.error("❌ Erro na OpenAI, usando fallback:", openaiError.message);
@@ -902,32 +937,61 @@ app.post("/finalize", authenticateToken, async (req, res) => {
 
         console.log(`📝 Transcrição completa (${fullTranscript.length} caracteres): "${fullTranscript}"`);
 
-        // Processar com ChatGPT
+        // Processar com Assistants API
         let analysis = "";
         try {
-            console.log("🤖 Processando transcrição completa com ChatGPT...");
+            console.log("🤖 Processando transcrição completa com Assistants API...");
             
-            const chatResponse = await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: [
-                    {
-                        role: "system",
-                        content: CHATGPT_PROMPT
-                    },
-                    {
-                        role: "user",
-                        content: `Analise a seguinte transcrição de áudio completa:\n\n${fullTranscript}`
-                    }
-                ],
-                max_tokens: 1000,
-                temperature: 0.7
+            const assistantId = "asst_d648Fv2xAGmEvb14F4LGU2mz";
+            
+            // Criar thread
+            const thread = await openai.beta.threads.create();
+            
+            // Adicionar mensagem à thread
+            await openai.beta.threads.messages.create(thread.id, {
+                role: "user",
+                content: `Analise a seguinte transcrição de áudio completa:\n\n${fullTranscript}`
             });
             
-            analysis = chatResponse.choices[0].message.content;
+            // Executar run do assistente
+            const run = await openai.beta.threads.runs.create(thread.id, {
+                assistant_id: assistantId
+            });
+            
+            // Aguardar conclusão do run
+            let runStatus = run.status;
+            let attempts = 0;
+            const maxAttempts = 30; // 30 tentativas com 2s = 60s max
+            
+            while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
+                
+                const runCheck = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+                runStatus = runCheck.status;
+                attempts++;
+                
+                console.log(`🔄 Status do run: ${runStatus} (tentativa ${attempts}/${maxAttempts})`);
+            }
+            
+            if (runStatus !== 'completed') {
+                throw new Error(`Run falhou com status: ${runStatus}`);
+            }
+            
+            // Obter mensagens da thread
+            const messages = await openai.beta.threads.messages.list(thread.id);
+            
+            // Encontrar a mensagem mais recente do assistente
+            const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
+            
+            if (!assistantMessage || !assistantMessage.content[0]) {
+                throw new Error('Nenhuma resposta do assistente');
+            }
+            
+            analysis = assistantMessage.content[0].text.value.trim();
             console.log(`✅ Análise gerada: ${analysis.length} caracteres`);
             
         } catch (openaiError) {
-            console.error("❌ Erro no processamento com ChatGPT:", openaiError.message);
+            console.error("❌ Erro no processamento com Assistants API:", openaiError.message);
             analysis = `## Resumo da Gravação (Modo Fallback)
 
 **Status:** Erro no processamento com IA
@@ -1022,21 +1086,7 @@ app.post("/api/assistant/objection", async (req, res) => {
             console.log(`📋 Histórico: ${previousObjections.length} objeções anteriores`);
         }
 
-        // Construir prompt do sistema
-        let systemPrompt = `Você é um assistente de vendas que identifica objeções potenciais do cliente baseado na transcrição da conversa.
-
-Sua tarefa:
-1. Analise a transcrição fornecida
-2. Identifique se há uma objeção clara ou potencial do cliente
-3. Se houver uma objeção relevante, forneça uma resposta estruturada e útil
-4. Se NÃO houver objeção, responda APENAS com "0" (zero)
-
-Formato da resposta quando há objeção:
-- Seja direto e objetivo
-- Foque na objeção específica
-- Forneça contexto de vendas`;
-
-        // Construir mensagem do usuário
+        // Construir mensagem com histórico de objeções
         let userMessage = `Transcrição recente: ${transcript}`;
         
         // Adicionar histórico de objeções se existir (últimas 5)
@@ -1049,24 +1099,53 @@ Formato da resposta quando há objeção:
             userMessage += `\nSe não houver uma objeção NOVA e DIFERENTE das anteriores, responda apenas com "0".`;
         }
 
-        // Usar Chat Completions API (muito mais rápido que Assistant API)
-        const chatResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                },
-                {
-                    role: "user",
-                    content: userMessage
-                }
-            ],
-            max_tokens: 300,
-            temperature: 0.7
+        // Usar Assistants API
+        const assistantId = "asst_R9q8LsRLzlIt8EkNiTrGB3WL";
+        
+        // Criar thread
+        const thread = await openai.beta.threads.create();
+        
+        // Adicionar mensagem à thread
+        await openai.beta.threads.messages.create(thread.id, {
+            role: "user",
+            content: userMessage
         });
-
-        const objection = chatResponse.choices[0]?.message?.content?.trim() || null;
+        
+        // Executar run do assistente
+        const run = await openai.beta.threads.runs.create(thread.id, {
+            assistant_id: assistantId
+        });
+        
+        // Aguardar conclusão do run
+        let runStatus = run.status;
+        let attempts = 0;
+        const maxAttempts = 30; // 30 tentativas com 2s = 60s max
+        
+        while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
+            
+            const runCheck = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+            runStatus = runCheck.status;
+            attempts++;
+            
+            console.log(`🔄 Status do run: ${runStatus} (tentativa ${attempts}/${maxAttempts})`);
+        }
+        
+        if (runStatus !== 'completed') {
+            throw new Error(`Run falhou com status: ${runStatus}`);
+        }
+        
+        // Obter mensagens da thread
+        const messages = await openai.beta.threads.messages.list(thread.id);
+        
+        // Encontrar a mensagem mais recente do assistente
+        const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
+        
+        if (!assistantMessage || !assistantMessage.content[0]) {
+            throw new Error('Nenhuma resposta do assistente');
+        }
+        
+        const objection = assistantMessage.content[0].text.value.trim();
 
         console.log("✅ Objeção gerada:", objection ? objection.substring(0, 50) + "..." : "nenhuma");
 
@@ -1077,6 +1156,192 @@ Formato da resposta quando há objeção:
 
     } catch (error) {
         console.error("❌ Erro no endpoint de objeção:", error.message);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
+// =====================================================
+// ENDPOINTS DE GERENCIAMENTO DE SESSÕES
+// =====================================================
+
+// POST /api/sessions/save - Salvar sessão
+app.post("/api/sessions/save", async (req, res) => {
+    try {
+        const { sessionId, userEmail, title, durationSeconds, recordMode, transcripts, summaries } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({
+                error: "sessionId é obrigatório"
+            });
+        }
+        
+        console.log("💾 Salvando sessão:", sessionId);
+        
+        const result = await saveSession({
+            sessionId,
+            userEmail,
+            title,
+            durationSeconds,
+            recordMode,
+            transcripts,
+            summaries
+        });
+        
+        if (!result.success) {
+            return res.status(500).json({
+                error: "Erro ao salvar sessão",
+                details: result.error
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: "Sessão salva com sucesso",
+            sessionId: result.sessionId
+        });
+    } catch (error) {
+        console.error("❌ Erro no endpoint /sessions/save:", error);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
+// GET /api/sessions/:sessionId - Carregar sessão
+app.get("/api/sessions/:sessionId", async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        console.log("📂 Carregando sessão:", sessionId);
+        
+        const result = await loadSession(sessionId);
+        
+        if (!result.success) {
+            return res.status(404).json({
+                error: "Sessão não encontrada",
+                details: result.error
+            });
+        }
+        
+        res.json({
+            success: true,
+            session: result.session
+        });
+    } catch (error) {
+        console.error("❌ Erro no endpoint /sessions/:sessionId:", error);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
+// GET /api/sessions/list/:userEmail - Listar sessões do usuário (apenas última)
+app.get("/api/sessions/list/:userEmail", async (req, res) => {
+    try {
+        const { userEmail } = req.params;
+        const limit = 1; // Forçar apenas 1 sessão
+        
+        console.log("📋 Listando última sessão do usuário:", userEmail);
+        
+        const result = await listSessions(userEmail, limit);
+        
+        if (!result.success) {
+            return res.status(500).json({
+                error: "Erro ao listar sessões",
+                details: result.error
+            });
+        }
+        
+        res.json({
+            success: true,
+            sessions: result.sessions
+        });
+    } catch (error) {
+        console.error("❌ Erro no endpoint /sessions/list:", error);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
+// DELETE /api/sessions/:sessionId - Deletar sessão
+app.delete("/api/sessions/:sessionId", async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        console.log("🗑️ Deletando sessão:", sessionId);
+        
+        const result = await deleteSession(sessionId);
+        
+        if (!result.success) {
+            return res.status(500).json({
+                error: "Erro ao deletar sessão",
+                details: result.error
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: "Sessão deletada com sucesso"
+        });
+    } catch (error) {
+        console.error("❌ Erro no endpoint /sessions/:sessionId:", error);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error.message
+        });
+    }
+});
+
+// POST /api/sessions/clear - Limpar sessão do usuário
+app.post("/api/sessions/clear", authenticateToken, async (req, res) => {
+    try {
+        const { userEmail } = req.body;
+        
+        if (!userEmail) {
+            return res.status(400).json({
+                error: "userEmail é obrigatório"
+            });
+        }
+        
+        console.log("🗑️ Limpando sessão do usuário:", userEmail);
+        
+        // Buscar último session_id do usuário
+        const { data: sessions } = await supabase
+            .from('sessions')
+            .select('session_id')
+            .eq('user_email', userEmail)
+            .limit(1);
+        
+        if (!sessions || sessions.length === 0) {
+            return res.json({
+                success: true,
+                message: "Nenhuma sessão encontrada"
+            });
+        }
+        
+        // Deletar usando o session_id encontrado
+        const result = await deleteSession(sessions[0].session_id);
+        
+        if (!result.success) {
+            return res.status(500).json({
+                error: "Erro ao deletar sessão",
+                details: result.error
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: "Sessão limpa com sucesso"
+        });
+    } catch (error) {
+        console.error("❌ Erro no endpoint /sessions/clear:", error);
         res.status(500).json({
             error: "Erro interno do servidor",
             details: error.message

@@ -88,3 +88,173 @@ export async function createAdminUser() {
         return false;
     }
 }
+
+// =====================================================
+// FUNÇÕES PARA GERENCIAMENTO DE SESSÕES
+// =====================================================
+
+/**
+ * Salvar uma sessão completa
+ */
+export async function saveSession(sessionData) {
+    try {
+        const { sessionId, userEmail, title, durationSeconds, recordMode, transcripts, summaries } = sessionData;
+        
+        // 0. Deletar todas as sessões antigas do mesmo usuário
+        const { error: deleteError } = await supabase
+            .from('sessions')
+            .delete()
+            .eq('user_email', userEmail);
+        
+        if (deleteError) {
+            console.warn('⚠️ Erro ao deletar sessões antigas:', deleteError.message);
+            // Continuar mesmo com erro (pode ser primeira sessão)
+        } else {
+            console.log('🗑️ Sessões antigas deletadas para usuário:', userEmail);
+        }
+        
+        // 1. Inserir sessão principal
+        const { data: session, error: sessionError } = await supabase
+            .from('sessions')
+            .insert({
+                session_id: sessionId,
+                user_email: userEmail,
+                title: title || `Sessão ${new Date().toLocaleString('pt-BR')}`,
+                duration_seconds: durationSeconds || 0,
+                record_mode: recordMode,
+                metadata: {}
+            })
+            .select()
+            .single();
+        
+        if (sessionError) throw sessionError;
+        
+        // 2. Inserir transcrições
+        if (transcripts && transcripts.length > 0) {
+            const transcriptsData = transcripts.map((t, index) => ({
+                session_id: session.id,
+                speaker: t.speaker,
+                text: t.text,
+                timestamp: t.timestamp || new Date().toISOString(),
+                chunk_index: t.chunkIndex || index,
+                is_final: t.isFinal || false
+            }));
+            
+            const { error: transcriptsError } = await supabase
+                .from('session_transcripts')
+                .insert(transcriptsData);
+            
+            if (transcriptsError) throw transcriptsError;
+        }
+        
+        // 3. Inserir resumos/objeções
+        if (summaries && summaries.length > 0) {
+            const summariesData = summaries.map(s => ({
+                session_id: session.id,
+                type: s.type, // 'summary', 'objection', 'suggestion'
+                content: s.content,
+                metadata: s.metadata || {}
+            }));
+            
+            const { error: summariesError } = await supabase
+                .from('session_summaries')
+                .insert(summariesData);
+            
+            if (summariesError) throw summariesError;
+        }
+        
+        console.log('✅ Sessão salva com sucesso:', session.id);
+        return { success: true, sessionId: session.id };
+    } catch (error) {
+        console.error('❌ Erro ao salvar sessão:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Carregar uma sessão por ID
+ */
+export async function loadSession(sessionId) {
+    try {
+        // 1. Buscar sessão principal
+        const { data: session, error: sessionError } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('session_id', sessionId)
+            .single();
+        
+        if (sessionError) throw sessionError;
+        
+        // 2. Buscar transcrições
+        const { data: transcripts, error: transcriptsError } = await supabase
+            .from('session_transcripts')
+            .select('*')
+            .eq('session_id', session.id)
+            .order('timestamp', { ascending: true });
+        
+        if (transcriptsError) throw transcriptsError;
+        
+        // 3. Buscar resumos/objeções
+        const { data: summaries, error: summariesError } = await supabase
+            .from('session_summaries')
+            .select('*')
+            .eq('session_id', session.id)
+            .order('created_at', { ascending: true });
+        
+        if (summariesError) throw summariesError;
+        
+        console.log('✅ Sessão carregada:', sessionId);
+        return {
+            success: true,
+            session: {
+                ...session,
+                transcripts,
+                summaries
+            }
+        };
+    } catch (error) {
+        console.error('❌ Erro ao carregar sessão:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Listar sessões de um usuário
+ */
+export async function listSessions(userEmail, limit = 50) {
+    try {
+        const { data, error } = await supabase
+            .from('sessions')
+            .select('id, session_id, title, created_at, duration_seconds, record_mode')
+            .eq('user_email', userEmail)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+        
+        if (error) throw error;
+        
+        return { success: true, sessions: data };
+    } catch (error) {
+        console.error('❌ Erro ao listar sessões:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Deletar uma sessão (cascade delete nas tabelas relacionadas)
+ */
+export async function deleteSession(sessionId) {
+    try {
+        const { error } = await supabase
+            .from('sessions')
+            .delete()
+            .eq('session_id', sessionId);
+        
+        if (error) throw error;
+        
+        console.log('✅ Sessão deletada:', sessionId);
+        return { success: true };
+    } catch (error) {
+        console.error('❌ Erro ao deletar sessão:', error);
+        return { success: false, error: error.message };
+    }
+}

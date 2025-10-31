@@ -28,6 +28,7 @@ class AudioAIClient {
         this.clearTranscriptBtn = document.getElementById('clearTranscriptBtn');
         this.notificationsToggle = document.getElementById('notificationsToggle');
         this.notificationIcon = document.getElementById('notificationIcon');
+        this.pipToggleBtn = document.getElementById('pipToggleBtn');
 
         // Estado da gravação
         this.isRecording = false;
@@ -83,6 +84,15 @@ class AudioAIClient {
         this.objectionsHistory = [];
         this.lastObjectionTime = 0;
         this.notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false'; // true por padrão
+        
+        // Picture-in-Picture
+        this.pipWindow = null;
+        this.pipSupported = 'documentPictureInPicture' in window;
+        this.lastObjectionText = null; // Última objeção detectada para exibir na PiP
+        
+        // Histórico para salvamento de sessão
+        this.transcriptHistory = []; // {speaker, text, timestamp, chunkIndex, isFinal}
+        this.summariesHistory = []; // {type, content, metadata}
 
         // URL do servidor
         // Detectar se está em produção (Vercel) ou desenvolvimento
@@ -136,11 +146,217 @@ class AudioAIClient {
 
         // Verificar suporte do navegador
         this.checkBrowserSupport();
+        
+        // Inicializar Picture-in-Picture
+        this.initPictureInPicture();
     }
     
     updateNotificationIcon() {
         if (this.notificationIcon) {
-            this.notificationIcon.textContent = this.notificationsEnabled ? '🔔' : '🔕';
+            const bellIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>`;
+            const bellOffIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                <path d="M18.63 13A17.888 17.888 0 0 1 18 8"></path>
+                <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path>
+                <path d="M18 8a6 6 0 0 0-9.33-5"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+            </svg>`;
+            this.notificationIcon.innerHTML = this.notificationsEnabled ? bellIcon : bellOffIcon;
+        }
+    }
+
+    // =====================================================
+    // PICTURE-IN-PICTURE
+    // =====================================================
+
+    initPictureInPicture() {
+        if (!this.pipSupported) {
+            // Esconder botão PiP se API não for suportada
+            if (this.pipToggleBtn) {
+                this.pipToggleBtn.style.display = 'none';
+            }
+            console.log('⚠️ API documentPictureInPicture não suportada neste navegador');
+            return;
+        }
+
+        // Event listener para botão toggle PiP
+        if (this.pipToggleBtn) {
+            this.pipToggleBtn.addEventListener('click', () => this.togglePictureInPicture());
+        }
+
+        // Event listener para evento leave da janela PiP (quando é fechada)
+        if (window.documentPictureInPicture.addEventListener) {
+            window.documentPictureInPicture.addEventListener('leave', () => {
+                console.log('📺 Janela Picture-in-Picture fechada');
+                this.pipWindow = null;
+                if (this.pipToggleBtn) {
+                    this.pipToggleBtn.classList.remove('active');
+                }
+            });
+        }
+    }
+
+    async togglePictureInPicture() {
+        if (!this.pipSupported) {
+            console.warn('⚠️ API documentPictureInPicture não suportada');
+            return;
+        }
+
+        if (this.pipWindow) {
+            // Fechar janela PiP
+            await this.closePictureInPicture();
+        } else {
+            // Abrir janela PiP
+            await this.openPictureInPicture();
+        }
+    }
+
+    async openPictureInPicture() {
+        try {
+            if (!this.pipSupported) {
+                throw new Error('API documentPictureInPicture não suportada');
+            }
+
+            console.log('📺 Abrindo janela Picture-in-Picture...');
+            
+            // Criar janela Picture-in-Picture
+            this.pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 320,
+                height: 280
+            });
+
+            // Configurar conteúdo da janela PiP
+            this.setupPictureInPictureWindow(this.pipWindow);
+
+            // Atualizar conteúdo com última objeção se existir
+            this.updatePictureInPictureContent();
+
+        } catch (error) {
+            console.error('❌ Erro ao abrir janela Picture-in-Picture:', error);
+            this.showError(`Erro ao abrir PiP: ${error.message}`);
+            this.pipWindow = null;
+        }
+    }
+
+    setupPictureInPictureWindow(pipWindow) {
+        try {
+            // Obter template HTML
+            const template = document.getElementById('pipTemplate');
+            if (!template) {
+                throw new Error('Template PiP não encontrado');
+            }
+
+            // Clonar template e adicionar à janela PiP
+            const pipContent = template.content.cloneNode(true);
+            
+            // Adicionar CSS à janela PiP
+            const link = pipWindow.document.createElement('link');
+            link.rel = 'stylesheet';
+            // Usar caminho relativo ou absoluto baseado na URL atual
+            const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+            link.href = window.location.origin + basePath + 'styles.css';
+            pipWindow.document.head.appendChild(link);
+
+            // Adicionar conteúdo ao body da janela PiP
+            pipWindow.document.body.appendChild(pipContent);
+
+            // Configurar botões na janela PiP
+            const pipCopyBtn = pipWindow.document.getElementById('pipCopyBtn');
+            const pipCloseBtn = pipWindow.document.getElementById('pipCloseBtn');
+
+            if (pipCopyBtn) {
+                pipCopyBtn.addEventListener('click', () => {
+                    if (this.lastObjectionText) {
+                        this.copyToClipboard(this.lastObjectionText);
+                        // Feedback visual
+                        const originalHTML = pipCopyBtn.innerHTML;
+                        const checkIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>`;
+                        pipCopyBtn.innerHTML = checkIcon + 'Copiado!';
+                        setTimeout(() => {
+                            pipCopyBtn.innerHTML = originalHTML;
+                        }, 2000);
+                    }
+                });
+            }
+
+            if (pipCloseBtn) {
+                pipCloseBtn.addEventListener('click', () => {
+                    this.closePictureInPicture();
+                });
+            }
+
+            console.log('✅ Janela Picture-in-Picture configurada');
+
+        } catch (error) {
+            console.error('❌ Erro ao configurar janela Picture-in-Picture:', error);
+            throw error;
+        }
+    }
+
+    updatePictureInPictureContent() {
+        if (!this.pipWindow) {
+            return;
+        }
+
+        try {
+            const pipObjectionsCount = this.pipWindow.document.getElementById('pipObjectionsCount');
+            const pipLastObjection = this.pipWindow.document.getElementById('pipLastObjection');
+
+            if (pipObjectionsCount) {
+                pipObjectionsCount.textContent = this.objections.toString();
+            }
+
+            if (pipLastObjection) {
+                // Limpar conteúdo anterior
+                pipLastObjection.innerHTML = '';
+
+                if (this.lastObjectionText) {
+                    // Criar elemento para exibir objeção usando documento da janela PiP
+                    const objectionDiv = this.pipWindow.document.createElement('div');
+                    objectionDiv.className = 'pip-objection-text';
+                    
+                    // Formatar texto da objeção
+                    const formattedText = this.formatResumeText(this.lastObjectionText);
+                    objectionDiv.innerHTML = formattedText;
+
+                    pipLastObjection.appendChild(objectionDiv);
+                } else {
+                    // Exibir estado vazio usando documento da janela PiP
+                    const emptyState = this.pipWindow.document.createElement('div');
+                    emptyState.className = 'pip-empty-state';
+                    emptyState.innerHTML = '<p>Nenhuma objeção detectada ainda</p>';
+                    pipLastObjection.appendChild(emptyState);
+                }
+            }
+
+            console.log('✅ Conteúdo Picture-in-Picture atualizado');
+
+        } catch (error) {
+            console.error('❌ Erro ao atualizar conteúdo Picture-in-Picture:', error);
+        }
+    }
+
+    async closePictureInPicture() {
+        if (!this.pipWindow) {
+            return;
+        }
+
+        try {
+            console.log('📺 Fechando janela Picture-in-Picture...');
+            this.pipWindow.close();
+            this.pipWindow = null;
+            
+            if (this.pipToggleBtn) {
+                this.pipToggleBtn.classList.remove('active');
+            }
+
+        } catch (error) {
+            console.error('❌ Erro ao fechar janela Picture-in-Picture:', error);
         }
     }
 
@@ -214,6 +430,8 @@ class AudioAIClient {
             this.accumulatedTranscript = '';
             this.isStopping = false;
             this.objectionsHistory = []; // Limpar histórico ao iniciar nova gravação
+            this.transcriptHistory = []; // Limpar histórico de transcrições
+            this.summariesHistory = []; // Limpar histórico de resumos
             
             // Solicitar permissão de notificações
             if (this.notificationsEnabled) {
@@ -271,7 +489,8 @@ class AudioAIClient {
             });
             
             this.setupMediaRecorder();
-            this.mediaRecorder.start(1000);
+            // Removido timeslice - WebM precisa acumular dados suficientes para formar arquivo válido
+            this.mediaRecorder.start();
             
         } catch (error) {
             console.error('Erro ao acessar microfone:', error);
@@ -958,6 +1177,10 @@ async mixWebmBlobs(micBlob, sysBlob) {
             await this.finalizeSession();
 
             this.stopAllStreams();
+            
+            // Salvar sessão automaticamente
+            await this.autoSaveSession();
+            
             this.resetUI();
             
         } catch (error) {
@@ -1008,12 +1231,17 @@ async mixWebmBlobs(micBlob, sysBlob) {
         try {
             console.log(`🔄 Processando chunk ${this.chunkIndex}`);
             
-            this.mediaRecorder.stop();
-            
+            // Configurar handler ANTES de parar para evitar race condition
             this.mediaRecorder.onstop = () => {
-                console.log(`📦 Chunk ${this.chunkIndex} processado`);
+                console.log(`📦 Chunk ${this.chunkIndex} finalizado`);
                 this.processChunk();
             };
+            
+            // Solicitar dados finais antes de parar (importante para WebM)
+            this.mediaRecorder.requestData();
+            
+            // Parar o MediaRecorder - isso vai disparar onstop e dataavailable
+            this.mediaRecorder.stop();
         } catch (error) {
             console.error('Erro ao processar chunk:', error);
             this.addTranscriptMessage('Sistema', `Erro no chunk ${this.chunkIndex}: ${error.message}`);
@@ -1029,8 +1257,18 @@ async mixWebmBlobs(micBlob, sysBlob) {
         const chunkIndex = this.chunkIndex;
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         
+        // WebM precisa de tamanho mínimo para formar arquivo válido (headers + metadata)
+        const MIN_CHUNK_SIZE = 512; // 512 bytes mínimo para WebM válido
+        
         if (audioBlob.size === 0) {
+            console.log(`⚠️ Chunk ${chunkIndex} vazio, ignorando...`);
             this.restartRecording();
+            return;
+        }
+        
+        if (audioBlob.size < MIN_CHUNK_SIZE) {
+            console.log(`⚠️ Chunk ${chunkIndex} muito pequeno (${audioBlob.size} bytes < ${MIN_CHUNK_SIZE} bytes), aguardando mais dados...`);
+            // Não reinicia - deixa acumular mais dados
             return;
         }
 
@@ -1319,6 +1557,15 @@ async mixWebmBlobs(micBlob, sysBlob) {
         messageDiv.querySelector('.message-text').textContent = text;
         
         this.transcriptArea.scrollTop = this.transcriptArea.scrollHeight;
+        
+        // Registrar no histórico para salvamento
+        this.transcriptHistory.push({
+            speaker: speaker,
+            text: text,
+            timestamp: new Date().toISOString(),
+            chunkIndex: this.chunkIndex || 0,
+            isFinal: speaker === 'Transcrição Final'
+        });
     }
     
     animateTextWordByWord(element, text, delayMs = 150) {
@@ -1438,30 +1685,39 @@ async mixWebmBlobs(micBlob, sysBlob) {
         
         this.suggestionsArea.appendChild(suggestionDiv);
         this.suggestionsArea.scrollTop = this.suggestionsArea.scrollHeight;
+        
+        // Registrar no histórico para salvamento
+        this.summariesHistory.push({
+            type: 'summary',
+            content: text,
+            metadata: {}
+        });
     }
 
-    addObjectionMessage(text) {
+    addObjectionMessage(text, isRestoring = false) {
         // Verificar se resposta é "0" ou vazia
         if (!text || text.trim() === '' || text.trim() === '0') {
             console.log('ℹ️ Nenhuma objeção relevante (resposta vazia ou "0")');
             return;
         }
         
-        // Debounce de 10 segundos - verificar se é muito recente
-        const now = Date.now();
-        if (now - this.lastObjectionTime < 10000) {
-            // Verificar similaridade com última objeção (70%)
-            if (this.objectionsHistory.length > 0) {
-                const lastObjection = this.objectionsHistory[this.objectionsHistory.length - 1];
-                const similarity = this.calculateSimilarity(text, lastObjection);
-                if (similarity > 0.7) {
-                    console.log('⚠️ Objeção muito similar à anterior, ignorando (debounce)');
-                    return;
+        // Durante restauração, pular verificações de debounce e similaridade
+        if (!isRestoring) {
+            // Debounce de 10 segundos - verificar se é muito recente
+            const now = Date.now();
+            if (now - this.lastObjectionTime < 10000) {
+                // Verificar similaridade com última objeção (70%)
+                if (this.objectionsHistory.length > 0) {
+                    const lastObjection = this.objectionsHistory[this.objectionsHistory.length - 1];
+                    const similarity = this.calculateSimilarity(text, lastObjection);
+                    if (similarity > 0.7) {
+                        console.log('⚠️ Objeção muito similar à anterior, ignorando (debounce)');
+                        return;
+                    }
                 }
             }
+            this.lastObjectionTime = now;
         }
-        
-        this.lastObjectionTime = now;
         
         // Remover objeção anterior se existir
         const existingObjection = this.suggestionsArea.querySelector('.objection-card');
@@ -1499,14 +1755,30 @@ async mixWebmBlobs(micBlob, sysBlob) {
         // Adicionar ao histórico de objeções
         this.objectionsHistory.push(text);
         
-        // Incrementar contador de objeções apenas na primeira vez
-        if (!existingObjection) {
+        // Incrementar contador de objeções apenas se não estiver restaurando
+        // (durante restauração, o contador já foi definido corretamente antes)
+        if (!isRestoring && !existingObjection) {
             this.objections++;
             this.updateMetrics();
         }
         
-        // Exibir notificação do navegador
-        this.showBrowserNotification('Nova objeção detectada!', text);
+        // Armazenar última objeção para Picture-in-Picture
+        this.lastObjectionText = text;
+        
+        // Atualizar janela Picture-in-Picture se estiver aberta
+        this.updatePictureInPictureContent();
+        
+        // Exibir notificação do navegador apenas se não estiver restaurando
+        if (!isRestoring) {
+            this.showBrowserNotification('Nova objeção detectada!', text);
+            
+            // Registrar no histórico para salvamento
+            this.summariesHistory.push({
+                type: 'objection',
+                content: text,
+                metadata: {}
+            });
+        }
         
         console.log('✅ Objeção atualizada:', text.substring(0, 50) + '...');
     }
@@ -1525,7 +1797,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
         return intersection.size / union.size;
     }
 
-    clearChat() {
+    async clearChat() {
         // Limpar todas as sugestões e objeções
         const suggestionCards = this.suggestionsArea.querySelectorAll('.suggestion-card');
         suggestionCards.forEach(card => card.remove());
@@ -1533,6 +1805,13 @@ async mixWebmBlobs(micBlob, sysBlob) {
         // Resetar contadores
         this.objections = 0;
         this.suggestions = 0;
+        
+        // Limpar última objeção para Picture-in-Picture
+        this.lastObjectionText = null;
+        
+        // Limpar histórico local
+        this.summariesHistory = [];
+        
         this.updateMetrics();
         
         // Adicionar estado vazio se não houver nenhum
@@ -1546,13 +1825,23 @@ async mixWebmBlobs(micBlob, sysBlob) {
             this.suggestionsArea.appendChild(emptyState);
         }
         
+        // Limpar do banco de dados
+        try {
+            await this.clearSessionFromDatabase();
+        } catch (error) {
+            console.error('❌ Erro ao limpar sessão do banco:', error);
+        }
+        
         console.log('🗑️ Chat limpo');
     }
 
-    clearTranscript() {
+    async clearTranscript() {
         // Limpar todas as mensagens de transcrição
         const transcriptMessages = this.transcriptArea.querySelectorAll('.message');
         transcriptMessages.forEach(message => message.remove());
+        
+        // Limpar histórico local
+        this.transcriptHistory = [];
         
         // Adicionar estado vazio se não houver nenhum
         if (this.transcriptArea.children.length === 0) {
@@ -1562,6 +1851,13 @@ async mixWebmBlobs(micBlob, sysBlob) {
                 <p>A transcrição aparecerá aqui quando a chamada começar...</p>
             `;
             this.transcriptArea.appendChild(emptyState);
+        }
+        
+        // Limpar do banco de dados
+        try {
+            await this.clearSessionFromDatabase();
+        } catch (error) {
+            console.error('❌ Erro ao limpar sessão do banco:', error);
         }
         
         console.log('🗑️ Transcrição limpa');
@@ -1708,6 +2004,231 @@ async mixWebmBlobs(micBlob, sysBlob) {
             window.location.href = '/login';
             return;
         }
+        
+        // Carregar última sessão automaticamente após autenticação
+        this.loadLastSession();
+    }
+    
+    async loadLastSession() {
+        try {
+            const userEmail = this.getUserEmail();
+            
+            const response = await fetch(`${this.serverUrl}/api/sessions/list/${userEmail}`, {
+                headers: this.getAuthHeaders()
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.sessions && result.sessions.length > 0) {
+                const sessionId = result.sessions[0].session_id;
+                await this.loadSessionData(sessionId);
+                console.log('✅ Última sessão carregada automaticamente');
+            } else {
+                console.log('ℹ️ Nenhuma sessão anterior encontrada');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar última sessão:', error);
+            // Não mostrar erro ao usuário - apenas log
+        }
+    }
+
+    // =====================================================
+    // GERENCIAMENTO DE SESSÕES
+    // =====================================================
+    
+    async autoSaveSession() {
+        // Verificar se há conteúdo para salvar
+        if (this.transcriptHistory.length === 0 && this.summariesHistory.length === 0) {
+            console.log('ℹ️ Nenhum conteúdo para salvar');
+            return;
+        }
+        
+        try {
+            const userEmail = this.getUserEmail();
+            const durationSeconds = this.recordingStartTime 
+                ? Math.floor((Date.now() - this.recordingStartTime) / 1000) 
+                : 0;
+            
+            // Gerar título automático baseado na data/hora
+            const now = new Date();
+            const title = `Sessão ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+            
+            const sessionData = {
+                sessionId: this.sessionId,
+                userEmail: userEmail,
+                title: title,
+                durationSeconds: durationSeconds,
+                recordMode: this.recordMode,
+                transcripts: this.transcriptHistory,
+                summaries: this.summariesHistory
+            };
+            
+            console.log('💾 Salvando sessão automaticamente:', title);
+            
+            const response = await fetch(`${this.serverUrl}/api/sessions/save`, {
+                method: 'POST',
+                headers: {
+                    ...this.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(sessionData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                console.log('✅ Sessão salva automaticamente com sucesso');
+            } else {
+                console.error('❌ Erro ao salvar sessão:', result.error);
+            }
+        } catch (error) {
+            console.error('❌ Erro ao salvar sessão automaticamente:', error);
+        }
+    }
+    
+    async loadSessionData(sessionId, showAlert = false) {
+        try {
+            console.log('📂 Carregando sessão:', sessionId);
+            
+            const response = await fetch(`${this.serverUrl}/api/sessions/${sessionId}`, {
+                headers: this.getAuthHeaders()
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.session) {
+                this.restoreSession(result.session);
+                if (showAlert) {
+                    alert('Sessão carregada com sucesso!');
+                }
+            } else {
+                throw new Error(result.error || 'Sessão não encontrada');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar sessão:', error);
+            if (showAlert) {
+                alert(`Erro ao carregar sessão: ${error.message}`);
+            }
+        }
+    }
+    
+    async restoreSession(session) {
+        // Limpar estado atual (aguardar para garantir que não limpa do banco)
+        await Promise.all([this.clearUI()]);
+        
+        // Restaurar transcrições
+        if (session.transcripts && session.transcripts.length > 0) {
+            session.transcripts.forEach(t => {
+                this.addTranscriptMessage(t.speaker, t.text);
+            });
+            this.transcriptHistory = session.transcripts;
+        }
+        
+        // Restaurar resumos/objeções
+        if (session.summaries && session.summaries.length > 0) {
+            // Contar objeções antes de restaurar para definir o contador corretamente
+            const objectionsCount = session.summaries.filter(s => s.type === 'objection').length;
+            this.objections = objectionsCount;
+            
+            session.summaries.forEach(s => {
+                if (s.type === 'objection') {
+                    // Durante restauração, não incrementar contador (já foi definido acima)
+                    this.addObjectionMessage(s.content, true);
+                } else if (s.type === 'summary') {
+                    this.addSuggestion(s.content);
+                }
+            });
+            this.summariesHistory = session.summaries;
+            this.updateMetrics();
+        }
+        
+        console.log('✅ Sessão restaurada:', session.title);
+    }
+    
+    async clearUI() {
+        // Limpar apenas a UI sem chamar o banco
+        const transcriptMessages = this.transcriptArea.querySelectorAll('.message');
+        transcriptMessages.forEach(message => message.remove());
+        
+        const suggestionCards = this.suggestionsArea.querySelectorAll('.suggestion-card');
+        suggestionCards.forEach(card => card.remove());
+        
+        // Resetar contadores
+        this.objections = 0;
+        this.suggestions = 0;
+        this.lastObjectionText = null;
+        
+        // Adicionar estados vazios se necessário
+        if (this.transcriptArea.children.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.innerHTML = `<p>A transcrição aparecerá aqui quando a chamada começar...</p>`;
+            this.transcriptArea.appendChild(emptyState);
+        }
+        
+        if (this.suggestionsArea.children.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.innerHTML = `
+                <div class="lightbulb-icon">AI</div>
+                <p>Resumo aparecerá aqui após o processamento do áudio</p>
+            `;
+            this.suggestionsArea.appendChild(emptyState);
+        }
+        
+        this.updateMetrics();
+    }
+    
+    getUserEmail() {
+        const user = localStorage.getItem('audio_ai_user');
+        if (user) {
+            try {
+                const userData = JSON.parse(user);
+                return userData.email;
+            } catch (e) {
+                return 'user@example.com';
+            }
+        }
+        return 'user@example.com';
+    }
+    
+    formatDuration(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    getRecordModeLabel(mode) {
+        const labels = {
+            'microphone': 'Microfone',
+            'system': 'Sistema',
+            'both': 'Ambos'
+        };
+        return labels[mode] || mode;
+    }
+    
+    async clearSessionFromDatabase() {
+        try {
+            const userEmail = this.getUserEmail();
+            
+            const response = await fetch(`${this.serverUrl}/api/sessions/clear`, {
+                method: 'POST',
+                headers: {
+                    ...this.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ userEmail })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                console.log('✅ Sessão limpa do banco de dados');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao limpar sessão do banco:', error);
+            throw error;
+        }
     }
 
     getAuthHeaders() {
@@ -1736,6 +2257,9 @@ async mixWebmBlobs(micBlob, sysBlob) {
         this.segmentsCount.textContent = `Segmentos: ${this.segments}`;
         this.objectionsCount.textContent = `Objeções: ${this.objections}`;
         this.suggestionsCount.textContent = `Sugestões: ${this.suggestions}`;
+        
+        // Atualizar contador na janela Picture-in-Picture se estiver aberta
+        this.updatePictureInPictureContent();
     }
 
     showError(message) {
@@ -1804,5 +2328,5 @@ async mixWebmBlobs(micBlob, sysBlob) {
 // Inicializar aplicação
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Omni Resume - Web carregado');
-    new AudioAIClient();
+    window.app = new AudioAIClient();
 });

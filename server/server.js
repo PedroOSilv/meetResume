@@ -1350,27 +1350,32 @@ app.use("*", (req, res) => {
     });
 });
 
-// Iniciar servidor
-app.listen(PORT, HOST, () => {
-    console.log("🚀 ================================");
-    console.log(`🎙️  Servidor Omni Resume Backend`);
-    console.log(`🌐 Rodando em: http://localhost:${PORT}`);
-    console.log(`🌍 Acesso externo: http://192.168.0.143:${PORT}`);
-    console.log(`🤖 OpenAI API: ${process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada'}`);
-    console.log("🚀 ================================");
-    console.log("");
-    console.log("Endpoints disponíveis:");
-    console.log(`  GET  /health - Status do servidor`);
-    console.log(`  POST /upload - Upload de áudio (modo original)`);
-    console.log(`  POST /upload-chunk - Upload de chunk individual (tempo real)`);
-    console.log(`  POST /finalize - Finalizar sessão e processar transcrição completa`);
-    console.log("");
-    console.log("🎯 Sistema de transcrição em tempo real ativo!");
-    console.log("   - Chunks de 5 segundos");
-    console.log("   - Processamento assíncrono");
-    console.log("   - Limpeza automática de sessões");
-    console.log("");
-});
+// Iniciar servidor apenas se não estiver rodando no Vercel
+if (!process.env.VERCEL) {
+    app.listen(PORT, HOST, () => {
+        console.log("🚀 ================================");
+        console.log(`🎙️  Servidor Omni Resume Backend`);
+        console.log(`🌐 Rodando em: http://localhost:${PORT}`);
+        console.log(`🌍 Acesso externo: http://192.168.0.143:${PORT}`);
+        console.log(`🤖 OpenAI API: ${process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada'}`);
+        console.log("🚀 ================================");
+        console.log("");
+        console.log("Endpoints disponíveis:");
+        console.log(`  GET  /health - Status do servidor`);
+        console.log(`  POST /upload - Upload de áudio (modo original)`);
+        console.log(`  POST /upload-chunk - Upload de chunk individual (tempo real)`);
+        console.log(`  POST /finalize - Finalizar sessão e processar transcrição completa`);
+        console.log("");
+        console.log("🎯 Sistema de transcrição em tempo real ativo!");
+        console.log("   - Chunks de 5 segundos");
+        console.log("   - Processamento assíncrono");
+        console.log("   - Limpeza automática de sessões");
+        console.log("");
+    });
+}
+
+// Export para Vercel
+export default app;
 
 // Tratamento de sinais para shutdown graceful
 process.on('SIGINT', () => {

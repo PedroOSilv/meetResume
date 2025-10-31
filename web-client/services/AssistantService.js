@@ -40,7 +40,7 @@ class AssistantService {
         // Configurar polling a cada 5 segundos
         this.pollingInterval = setInterval(() => {
             this.requestObjection();
-        }, 5000);
+        }, 1000);
     }
 
     /**

@@ -149,6 +149,9 @@ class AudioAIClient {
         
         // Inicializar Picture-in-Picture
         this.initPictureInPicture();
+        
+        // Carregar última sessão automaticamente após inicialização
+        this.loadLastSession();
     }
     
     updateNotificationIcon() {
@@ -2004,9 +2007,6 @@ async mixWebmBlobs(micBlob, sysBlob) {
             window.location.href = '/login';
             return;
         }
-        
-        // Carregar última sessão automaticamente após autenticação
-        this.loadLastSession();
     }
     
     async loadLastSession() {

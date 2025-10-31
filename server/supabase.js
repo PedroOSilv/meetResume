@@ -6,30 +6,106 @@ dotenv.config();
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-// Mock do Supabase para desenvolvimento
+// Mock do Supabase para desenvolvimento com armazenamento em memória
+const mockDatabase = {
+    sessions: [],
+    session_transcripts: [],
+    session_summaries: []
+};
+
 const mockSupabase = {
-    from: (table) => ({
-        select: (columns = '*') => ({
-            eq: (column, value) => ({ 
-                data: null, 
-                error: { code: 'PGRST116', message: 'Table not found' } 
-            }),
-            limit: (count) => ({ 
-                data: null, 
-                error: { code: 'PGRST116', message: 'Table not found' } 
+    from: (table) => {
+        // Capturar o nome da tabela para usar dentro das chamadas assíncronas
+        const tableName = table;
+        
+        return {
+            select: (columns = '*') => {
+                return {
+                    eq: (column, value) => {
+                        const filteredData = mockDatabase[tableName]?.filter(item => item[column] === value) || [];
+                        return {
+                            order: (column, options) => ({
+                                limit: (count) => ({ 
+                                    data: filteredData.slice(0, count), 
+                                    error: null 
+                                }),
+                                data: filteredData, 
+                                error: null 
+                            }),
+                            limit: (count) => ({ 
+                                data: filteredData.slice(0, count), 
+                                error: null 
+                            }),
+                            single: () => {
+                                if (filteredData.length === 0) {
+                                    return { 
+                                        data: null, 
+                                        error: { code: 'PGRST116', message: 'No rows found' } 
+                                    };
+                                }
+                                return { data: filteredData[0], error: null };
+                            },
+                            data: filteredData, 
+                            error: null 
+                        };
+                    },
+                    limit: (count) => {
+                        const allData = mockDatabase[tableName] || [];
+                        return { 
+                            data: allData.slice(-count).reverse(), 
+                            error: null 
+                        };
+                    },
+                    data: mockDatabase[tableName] || [], 
+                    error: null 
+                };
+            },
+            insert: (data) => {
+                // Verificar se data é array ou objeto único
+                const dataArray = Array.isArray(data) ? data : [data];
+                
+                // Inicializar array da tabela se não existir
+                if (!mockDatabase[tableName]) {
+                    mockDatabase[tableName] = [];
+                }
+                
+                // Inserir cada item
+                const insertedData = dataArray.map(item => {
+                    const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+                    const newData = { id, ...item };
+                    mockDatabase[tableName].push(newData);
+                    return newData;
+                });
+                
+                // Se inseriu apenas um item, retornar objeto único
+                const result = {
+                    data: dataArray.length === 1 ? insertedData[0] : insertedData,
+                    error: null
+                };
+                
+                return {
+                    select: (columns = '*') => ({
+                        single: () => result,
+                        data: insertedData, 
+                        error: null 
+                    }),
+                    ...result
+                };
+            },
+            delete: () => ({
+                eq: (column, value) => {
+                    if (mockDatabase[tableName]) {
+                        mockDatabase[tableName] = mockDatabase[tableName].filter(item => item[column] !== value);
+                    }
+                    return { data: null, error: null };
+                }
             })
-        }),
-        insert: (data) => ({
-            select: (columns = '*') => ({ 
-                data: null, 
-                error: { code: '23505', message: 'Duplicate key' } 
-            })
-        })
-    })
+        };
+    }
 };
 
 // Exportar Supabase real ou mock
-export const supabase = (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://temp.supabase.co') 
+export const supabase = (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://temp.supabase.co' || supabaseKey === 'temp-key-for-development') 
     ? mockSupabase 
     : createClient(supabaseUrl, supabaseKey);
 
@@ -57,7 +133,8 @@ export async function checkAuthTable() {
 // Função para criar usuário admin inicial
 export async function createAdminUser() {
     try {
-        const bcrypt = await import('bcryptjs');
+        const bcryptModule = await import('bcryptjs');
+        const bcrypt = bcryptModule.default || bcryptModule;
         const hashedPassword = await bcrypt.hash('admin123', 10);
         
         const { data, error } = await supabase

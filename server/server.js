@@ -41,7 +41,7 @@ dotenv.config();
 const app = express();
 // Configuração de host para aceitar conexões externas
 const HOST = process.env.HOST || '0.0.0.0';
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 
 // Verificar se a chave da OpenAI está configurada
 console.log("🔍 Investigando variável de ambiente OPENAI_API_KEY...");
@@ -289,7 +289,7 @@ app.use((req, res, next) => {
                 message: 'A operação demorou muito para ser processada'
             });
         }
-    }, 50000); // 50 segundos
+    }, 70000); // 70 segundos (aumentado para Assistants API)
 
     res.on('finish', () => {
         clearTimeout(timeout);
@@ -1073,7 +1073,7 @@ app.use((error, req, res, next) => {
 // Endpoint para assistente de objeções
 app.post("/api/assistant/objection", async (req, res) => {
     try {
-        const { transcript, previousObjections = [] } = req.body;
+        const { transcript } = req.body;
         
         if (!transcript || !transcript.trim()) {
             return res.status(400).json({
@@ -1082,22 +1082,9 @@ app.post("/api/assistant/objection", async (req, res) => {
         }
 
         console.log("🤖 Processando objeção para transcrição:", transcript.substring(0, 100) + "...");
-        if (previousObjections.length > 0) {
-            console.log(`📋 Histórico: ${previousObjections.length} objeções anteriores`);
-        }
 
-        // Construir mensagem com histórico de objeções
-        let userMessage = `Transcrição recente: ${transcript}`;
-        
-        // Adicionar histórico de objeções se existir (últimas 5)
-        if (previousObjections.length > 0) {
-            const recentObjections = previousObjections.slice(-5);
-            userMessage += `\n\n⚠️ IMPORTANTE: As seguintes objeções já foram mencionadas. NÃO as repita:\n`;
-            recentObjections.forEach((obj, idx) => {
-                userMessage += `${idx + 1}. ${obj.substring(0, 80)}...\n`;
-            });
-            userMessage += `\nSe não houver uma objeção NOVA e DIFERENTE das anteriores, responda apenas com "0".`;
-        }
+        // Construir mensagem
+        const userMessage = `Transcrição recente: ${transcript}`;
 
         // Usar Assistants API
         const assistantId = "asst_R9q8LsRLzlIt8EkNiTrGB3WL";

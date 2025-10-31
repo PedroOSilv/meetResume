@@ -325,8 +325,10 @@ class AudioAIClient {
                     
                     // Formatar texto da objeção
                     const formattedText = this.formatResumeText(this.lastObjectionText);
-                    objectionDiv.innerHTML = formattedText;
-
+                    
+                    // Aplicar animação palavra por palavra usando documento da janela PiP
+                    this.animateHTMLContentForPip(objectionDiv, formattedText, this.pipWindow.document);
+                    
                     pipLastObjection.appendChild(objectionDiv);
                 } else {
                     // Exibir estado vazio usando documento da janela PiP
@@ -342,6 +344,59 @@ class AudioAIClient {
         } catch (error) {
             console.error('❌ Erro ao atualizar conteúdo Picture-in-Picture:', error);
         }
+    }
+
+    /**
+     * Anima conteúdo HTML palavra por palavra na janela Picture-in-Picture
+     * @param {HTMLElement} element - Elemento onde adicionar o conteúdo animado
+     * @param {string} htmlContent - Conteúdo HTML formatado
+     * @param {Document} pipDocument - Documento da janela PiP
+     * @param {number} delayMs - Delay entre palavras em milissegundos
+     */
+    animateHTMLContentForPip(element, htmlContent, pipDocument, delayMs = 150) {
+        // Limpar conteúdo anterior
+        element.innerHTML = '';
+        
+        // Criar um elemento temporário para extrair o texto do HTML
+        const tempDiv = pipDocument.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        const fullText = tempDiv.textContent || tempDiv.innerText;
+        
+        // Dividir em palavras
+        const words = fullText.split(' ').filter(w => w.trim());
+        let currentIndex = 0;
+        
+        // Função para adicionar próxima palavra
+        const addNextWord = () => {
+            if (currentIndex < words.length) {
+                // Adicionar espaço antes da palavra se não for a primeira
+                if (currentIndex > 0) {
+                    element.appendChild(pipDocument.createTextNode(' '));
+                }
+                
+                // Criar span para a palavra usando documento da janela PiP
+                const wordSpan = pipDocument.createElement('span');
+                wordSpan.textContent = words[currentIndex];
+                wordSpan.style.opacity = '0';
+                wordSpan.style.display = 'inline';
+                wordSpan.style.transition = 'opacity 0.2s ease';
+                
+                element.appendChild(wordSpan);
+                
+                // Animar entrada
+                requestAnimationFrame(() => {
+                    wordSpan.style.opacity = '1';
+                });
+                
+                currentIndex++;
+                
+                // Agendar próxima palavra
+                setTimeout(addNextWord, delayMs);
+            }
+        };
+        
+        // Iniciar animação
+        addNextWord();
     }
 
     async closePictureInPicture() {
@@ -460,8 +515,7 @@ class AudioAIClient {
             this.assistantService.startPolling(
                 (objection) => this.addObjectionMessage(objection),
                 (error) => console.error('Erro no assistente:', error),
-                () => this.getRecentTranscript(), // Callback para obter transcrição recente
-                () => this.getPreviousObjections() // Callback para obter objeções anteriores
+                () => this.getFullTranscript() // Callback para obter transcrição completa
             );
             
             // No modo "both", o sistema de chunks é gerenciado pela função startMixedRecording
@@ -1177,12 +1231,13 @@ async mixWebmBlobs(micBlob, sysBlob) {
             }
 
             await this.waitForPendingUploads();
+            
+            // Salvar sessão automaticamente ANTES de finalizar (que limpa sessionId)
+            await this.autoSaveSession();
+            
             await this.finalizeSession();
 
             this.stopAllStreams();
-            
-            // Salvar sessão automaticamente
-            await this.autoSaveSession();
             
             this.resetUI();
             
@@ -1704,6 +1759,9 @@ async mixWebmBlobs(micBlob, sysBlob) {
             return;
         }
         
+        // Verificar se já existe objeção antes de fazer qualquer alteração
+        const hadExistingObjection = !!this.suggestionsArea.querySelector('.objection-card');
+        
         // Durante restauração, pular verificações de debounce e similaridade
         if (!isRestoring) {
             // Debounce de 10 segundos - verificar se é muito recente
@@ -1758,10 +1816,13 @@ async mixWebmBlobs(micBlob, sysBlob) {
         // Adicionar ao histórico de objeções
         this.objectionsHistory.push(text);
         
-        // Incrementar contador de objeções apenas se não estiver restaurando
-        // (durante restauração, o contador já foi definido corretamente antes)
-        if (!isRestoring && !existingObjection) {
+        // Incrementar contador de objeções apenas se não estiver restaurando e for uma nova objeção
+        // (não incrementar se apenas substituiu uma objeção existente)
+        if (!isRestoring && !hadExistingObjection) {
             this.objections++;
+            this.updateMetrics();
+        } else if (!isRestoring) {
+            // Atualizar métricas mesmo se não incrementou (para garantir sincronização com PIP)
             this.updateMetrics();
         }
         
@@ -1877,10 +1938,13 @@ async mixWebmBlobs(micBlob, sysBlob) {
         
         return recentWords.join(' ');
     }
-    
-    getPreviousObjections() {
-        // Retornar últimas 5 objeções para evitar repetição
-        return this.objectionsHistory.slice(-5);
+
+    /**
+     * Retorna a transcrição completa acumulada
+     * Usado pelo assistente de objeção para comparar palavras novas
+     */
+    getFullTranscript() {
+        return this.accumulatedTranscript || '';
     }
 
     async requestNotificationPermission() {
@@ -2064,6 +2128,7 @@ async mixWebmBlobs(micBlob, sysBlob) {
             };
             
             console.log('💾 Salvando sessão automaticamente:', title);
+            console.log('📊 Transcrições:', this.transcriptHistory.length, 'Resumos:', this.summariesHistory.length);
             
             const response = await fetch(`${this.serverUrl}/api/sessions/save`, {
                 method: 'POST',
